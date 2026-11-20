@@ -20,7 +20,7 @@ const NOT_RELAYED = new Set([
 ]);
 
 /** Only these request headers cross the boundary. The browser's own Authorization is ignored. */
-const FORWARDED_HEADERS = ['accept', 'content-type', 'idempotency-key'] as const;
+const FORWARDED_HEADERS = ['accept', 'content-type', 'idempotency-key', 'if-none-match'] as const;
 
 export function upstreamUrl(segments: readonly string[], search: string): string {
   return `/api/v1/${segments.map(encodeURIComponent).join('/')}${search}`;

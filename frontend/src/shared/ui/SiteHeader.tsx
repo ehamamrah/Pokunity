@@ -6,7 +6,7 @@ const LINK_CLASS = 'hover:text-teal-800';
 
 export function Brand() {
   return (
-    <Link href={ROUTES.home} className="flex items-center gap-2 rounded-md focus-visible:outline-2 focus-visible:outline-teal-600">
+    <Link prefetch={false} href={ROUTES.home} className="flex items-center gap-2 rounded-md focus-visible:outline-2 focus-visible:outline-teal-600">
       <span aria-hidden="true" className="grid size-8 place-items-center rounded-lg bg-teal-700 font-bold text-white">P</span>
       <span className="leading-tight">
         <span className="block text-base font-bold text-slate-900">Pokunity</span>
@@ -19,8 +19,8 @@ export function Brand() {
 function PrimaryNav() {
   return (
     <nav aria-label="Primary" className="hidden gap-4 text-sm font-medium text-slate-700 sm:flex">
-      <Link className={LINK_CLASS} href={ROUTES.home}>Marketplace</Link>
-      <Link className={LINK_CLASS} href={ROUTES.reservations}>My reservations</Link>
+      <Link prefetch={false} className={LINK_CLASS} href={ROUTES.home}>Marketplace</Link>
+      <Link prefetch={false} className={LINK_CLASS} href={ROUTES.reservations}>My reservations</Link>
     </nav>
   );
 }
@@ -28,8 +28,8 @@ function PrimaryNav() {
 function MobileNav() {
   return (
     <nav aria-label="Primary mobile" className="flex gap-4 border-t border-slate-100 px-4 py-2 text-sm font-medium text-slate-700 sm:hidden">
-      <Link href={ROUTES.home}>Marketplace</Link>
-      <Link href={ROUTES.reservations}>My reservations</Link>
+      <Link prefetch={false} href={ROUTES.home}>Marketplace</Link>
+      <Link prefetch={false} href={ROUTES.reservations}>My reservations</Link>
     </nav>
   );
 }

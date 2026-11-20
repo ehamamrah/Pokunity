@@ -13,5 +13,6 @@ export function useJameyaDetail(jameyaId: string) {
     staleTime: TIMING.staleTimeMs,
     refetchInterval: TIMING.seatMapRefetchMs,
     refetchOnWindowFocus: true,
+    refetchIntervalInBackground: false,
   });
 }

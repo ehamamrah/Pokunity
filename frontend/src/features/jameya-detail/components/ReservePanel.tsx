@@ -29,7 +29,7 @@ function ViewerNotices({ detail, seat }: { detail: JameyaDetail; seat: Seat | nu
         <Alert tone="warning" title="You cannot reserve yet">{restrictionCopy(detail.viewer.blockingReason)}</Alert>
       ) : null}
       {detail.viewer.activeReservationId ? (
-        <Link href={`/reservations/${detail.viewer.activeReservationId}`} className="text-sm font-semibold text-teal-800 underline">
+        <Link prefetch={false} href={`/reservations/${detail.viewer.activeReservationId}`} className="text-sm font-semibold text-teal-800 underline">
           View your current hold
         </Link>
       ) : null}

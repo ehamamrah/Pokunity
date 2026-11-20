@@ -11,5 +11,6 @@ export function useFeatured() {
     queryFn: fetchFeatured,
     staleTime: TIMING.staleTimeMs,
     refetchInterval: TIMING.marketplaceRefetchMs,
+    refetchIntervalInBackground: false,
   });
 }

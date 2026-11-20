@@ -76,5 +76,7 @@ it('retries only transport loss, in-flight and rate-limit answers, and never bus
 it('honors Retry-After before falling back to backoff', () => {
   const limited = new ApiError({ status: 429, code: 'RATE_LIMITED', message: '', retryAfterSeconds: 2 });
   expect(writeRetryDelayMs(1, limited)).toBe(2000);
-  expect(writeRetryDelayMs(2, new NetworkError())).toBe(1000);
+  const delay = writeRetryDelayMs(2, new NetworkError());
+  expect(delay).toBeGreaterThanOrEqual(500);
+  expect(delay).toBeLessThanOrEqual(1000);
 });

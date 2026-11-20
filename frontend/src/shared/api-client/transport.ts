@@ -43,7 +43,9 @@ function toInit(request: HttpRequest): RequestInit {
     keepalive: request.keepalive,
     signal: request.signal,
     credentials: 'same-origin',
-    cache: 'no-store',
+    // Reads may use the browser HTTP cache and conditional requests (Cache-Control, ETag).
+    // Writes never do.
+    cache: request.method === 'GET' ? 'default' : 'no-store',
   };
 }
 

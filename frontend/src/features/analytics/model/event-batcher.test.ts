@@ -40,6 +40,7 @@ it('flushes a partial batch after the five second interval', async () => {
   serviceWith(sink).track(draft());
   expect(send).not.toHaveBeenCalled();
   await vi.advanceTimersByTimeAsync(5_000);
+  await vi.runOnlyPendingTimersAsync();
   expect(send).toHaveBeenCalledTimes(1);
 });
 
@@ -71,4 +72,14 @@ it('attributes events to the experiment remembered from the list', () => {
   service.track({ type: 'click', jameyaId: 'j-1', surface: 'jameya_detail', position: null });
   service.flushOnHide();
   expect(beacon).toHaveBeenCalledWith([expect.objectContaining({ experiment: { key: 'ranking_v2', variant: 'treatment' } })]);
+});
+
+it('drops the queue after repeated failed sends, so memory stays bounded during an outage', async () => {
+  const send = vi.fn((_events: AnalyticsEventDto[], _keepalive: boolean): Promise<void> => Promise.reject(new Error('down')));
+  const service = serviceWith({ send, beacon: () => true });
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    service.track(draft());
+    await service.flush();
+  }
+  expect(service.pending()).toBe(0);
 });

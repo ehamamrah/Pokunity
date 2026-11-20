@@ -12,7 +12,7 @@ function HoldCountdown({ reservation, nowMs }: { reservation: Reservation; nowMs
 export function ReservationCard({ reservation, nowMs }: { reservation: Reservation; nowMs: number | null }) {
   return (
     <li className="rounded-2xl bg-white p-4 ring-1 ring-slate-200">
-      <Link href={ROUTES.reservation(reservation.id)} className="block space-y-2 rounded-lg focus-visible:outline-2 focus-visible:outline-teal-600">
+      <Link prefetch={false} href={ROUTES.reservation(reservation.id)} className="block space-y-2 rounded-lg focus-visible:outline-2 focus-visible:outline-teal-600">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <p className="font-semibold text-slate-900">{reservation.jameyaName}</p>
           <StatusBadge status={reservation.status} />

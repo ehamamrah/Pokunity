@@ -1,7 +1,8 @@
 import type { ZodType, ZodTypeDef } from 'zod';
 import { createUuid } from '../lib/uuid';
 import { toApiError } from './envelope';
-import { ContractError } from './errors';
+import { ApiError, ContractError } from './errors';
+import { writeGate, type RateGate } from './rate-gate';
 import { createFetchTransport, type HttpMethod, type HttpRequest, type HttpResponse, type HttpTransport } from './transport';
 
 export type QueryParamValue = string | number | boolean | null | undefined | string[];
@@ -32,6 +33,7 @@ export interface ApiClientConfig {
   baseUrl: string;
   transport?: HttpTransport;
   createRequestId?: () => string;
+  gate?: RateGate;
 }
 
 function appendQuery(params: URLSearchParams, key: string, value: QueryParamValue): void {
@@ -78,18 +80,33 @@ function parseBody<T>(schema: Schema<T>, path: string, body: unknown): T {
   return result.data;
 }
 
-function toResult<T>(response: HttpResponse, schema: Schema<T>, path: string): ApiResponse<T> {
-  if (response.status < 200 || response.status >= 300) throw toApiError(response.status, response.body, response.headers);
+function toResult<T>(response: HttpResponse, schema: Schema<T>, path: string, gate: RateGate): ApiResponse<T> {
+  if (response.status < 200 || response.status >= 300) throw failure(response, gate);
   return { status: response.status, headers: response.headers, data: parseBody(schema, path, response.body) };
+}
+
+function failure(response: HttpResponse, gate: RateGate): ApiError {
+  const error = toApiError(response.status, response.body, response.headers);
+  if (error.status === 429) gate.close(error.retryAfterSeconds ?? 1);
+  return error;
+}
+
+function assertWriteAllowed(method: HttpMethod, gate: RateGate): void {
+  const wait = gate.remainingSeconds();
+  if (method === 'GET' || wait === 0) return;
+  throw new ApiError({ status: 429, code: 'RATE_LIMITED', message: 'Too many requests. Please wait a moment.', retryAfterSeconds: wait });
 }
 
 /** Adapter: typed success or typed ApiError/NetworkError/ContractError, never a raw Response. */
 export function createApiClient(config: ApiClientConfig): ApiClient {
   const transport = config.transport ?? createFetchTransport();
+  const gate = config.gate ?? writeGate;
   const execute =
     <T>(method: HttpMethod) =>
-    async (path: string, schema: Schema<T>, options: RequestOptions = {}): Promise<ApiResponse<T>> =>
-      toResult(await transport.send(buildRequest(config, method, path, options)), schema, path);
+    async (path: string, schema: Schema<T>, options: RequestOptions = {}): Promise<ApiResponse<T>> => {
+      assertWriteAllowed(method, gate);
+      return toResult(await transport.send(buildRequest(config, method, path, options)), schema, path, gate);
+    };
   return {
     get: execute('GET'),
     post: execute('POST'),

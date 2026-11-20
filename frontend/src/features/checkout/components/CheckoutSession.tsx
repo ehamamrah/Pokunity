@@ -31,7 +31,7 @@ function StatusNotices({ reservation, flow }: { reservation: Reservation; flow: 
 }
 
 function ReservationsLink() {
-  return <Link href={ROUTES.reservations} className="text-sm font-semibold text-teal-800 underline">Go to my reservations</Link>;
+  return <Link prefetch={false} href={ROUTES.reservations} className="text-sm font-semibold text-teal-800 underline">Go to my reservations</Link>;
 }
 
 /** One session per reservation (keyed by id). The state lives in useCheckoutFlow; this composes the view. */

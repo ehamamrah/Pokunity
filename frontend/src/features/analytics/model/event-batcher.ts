@@ -1,4 +1,8 @@
 import type { AnalyticsEventDto } from './events';
+import { runWhenIdle } from '@/shared/lib/idle';
+
+/** After this many consecutive failed sends the queue is dropped: analytics must never grow without bound. */
+export const MAX_CONSECUTIVE_FAILURES = 3;
 
 /** Port: how a batch leaves the browser. Implemented with fetch(keepalive) or sendBeacon. */
 export interface BatchSink {
@@ -23,6 +27,7 @@ type TimerHandle = ReturnType<typeof setTimeout>;
 export class EventBatcher {
   private queue: AnalyticsEventDto[] = [];
   private timer: TimerHandle | null = null;
+  private failures = 0;
 
   constructor(
     private readonly sink: BatchSink,
@@ -48,8 +53,9 @@ export class EventBatcher {
     if (batch.length === 0) return;
     try {
       await this.sink.send(batch, true);
+      this.failures = 0;
     } catch {
-      this.requeue(batch);
+      this.onSendFailure(batch);
     }
     if (this.queue.length > 0) this.scheduleFlush();
   }
@@ -65,6 +71,16 @@ export class EventBatcher {
     return this.queue.splice(0, this.options.hardMax);
   }
 
+  private onSendFailure(batch: AnalyticsEventDto[]): void {
+    this.failures += 1;
+    if (this.failures >= MAX_CONSECUTIVE_FAILURES) {
+      this.failures = 0;
+      this.queue = [];
+      return;
+    }
+    this.requeue(batch);
+  }
+
   private requeue(batch: AnalyticsEventDto[]): void {
     this.queue = [...batch, ...this.queue].slice(-this.options.maxQueue);
   }
@@ -73,7 +89,7 @@ export class EventBatcher {
     if (this.timer !== null) return;
     this.timer = setTimeout(() => {
       this.timer = null;
-      void this.flush();
+      runWhenIdle(() => void this.flush());
     }, this.options.intervalMs);
   }
 

@@ -1,4 +1,5 @@
 import { isApiError, isNetworkError } from './errors';
+import { backoffDelayMs } from './backoff';
 
 export const MAX_WRITE_RETRIES = 2;
 
@@ -22,8 +23,7 @@ export function shouldRetryWrite(failureCount: number, error: unknown): boolean 
   return failureCount <= MAX_WRITE_RETRIES && isAutoRetryableWrite(error);
 }
 
-/** Honors Retry-After when present, otherwise exponential backoff capped at 4 s. */
+/** Honors Retry-After when present, otherwise jittered exponential backoff (see backoff.ts). */
 export function writeRetryDelayMs(failureCount: number, error: unknown): number {
-  if (isApiError(error) && error.retryAfterSeconds !== null) return error.retryAfterSeconds * 1000;
-  return Math.min(4_000, 500 * 2 ** (failureCount - 1));
+  return backoffDelayMs(failureCount, error);
 }

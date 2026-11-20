@@ -49,3 +49,8 @@ it('derives Secure from the request protocol unless COOKIE_SECURE overrides it',
 it('expires the cookie with matching attributes so the browser drops it', () => {
   expect(expiredSessionCookie(false)).toMatchObject({ value: '', maxAge: 0, httpOnly: true });
 });
+
+it('forwards If-None-Match so the backend can answer 304 for unchanged data', () => {
+  const request = new Request('http://localhost:3000/api/v1/jameyas', { headers: { 'If-None-Match': '"abc"' } });
+  expect(buildUpstreamHeaders(request, 'jwt', 'req-8').get('if-none-match')).toBe('"abc"');
+});

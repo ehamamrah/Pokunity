@@ -29,7 +29,7 @@ export function ReservationList() {
   if (query.isPending) return <SkeletonCards count={2} />;
   if (query.isError) return <Alert tone="danger" title="We could not load your reservations">Check your connection and try again.</Alert>;
   if (items.length === 0) {
-    return <EmptyState title="No reservations yet" action={<Link href="/" className={BROWSE_LINK}>Browse Jameyas</Link>}>When you hold a seat, it appears here with its countdown and payment status.</EmptyState>;
+    return <EmptyState title="No reservations yet" action={<Link prefetch={false} href="/" className={BROWSE_LINK}>Browse Jameyas</Link>}>When you hold a seat, it appears here with its countdown and payment status.</EmptyState>;
   }
   return <GroupedList groups={groups} nowMs={nowMs} />;
 }

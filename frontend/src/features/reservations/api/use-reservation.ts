@@ -19,6 +19,7 @@ export function useReservation(id: string) {
       const pendingElapsedMs = reservation ? Date.now() - Date.parse(reservation.updatedAt) : 0;
       return pollIntervalFor(reservation?.status, pendingElapsedMs);
     },
-    refetchIntervalInBackground: true,
+    // Paused while hidden. The result is authoritative, so returning to the tab refetches at once.
+    refetchIntervalInBackground: false,
   });
 }

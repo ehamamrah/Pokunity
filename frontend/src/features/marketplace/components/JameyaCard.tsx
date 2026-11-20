@@ -32,7 +32,7 @@ interface CardLinkProps {
 function CardLink({ jameya, position, surface, experiment, children }: CardLinkProps) {
   const onNavigate = () => analytics.track({ type: 'click', jameyaId: jameya.id, surface, position, experiment });
   return (
-    <Link href={ROUTES.jameya(jameya.id)} onClick={onNavigate} className="flex flex-1 flex-col gap-4 rounded-2xl p-4 focus-visible:outline-2 focus-visible:outline-teal-600">
+    <Link prefetch={false} href={ROUTES.jameya(jameya.id)} onClick={onNavigate} className="flex flex-1 flex-col gap-4 rounded-2xl p-4 focus-visible:outline-2 focus-visible:outline-teal-600">
       {children}
     </Link>
   );

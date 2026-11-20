@@ -13,7 +13,7 @@ interface ActionHandlers {
 function RecoveryControl({ action, onRefresh, onRetry }: { action: RecoveryAction } & ActionHandlers) {
   switch (action.kind) {
     case 'link':
-      return <Link href={action.href} className="text-sm font-semibold text-teal-900 underline">{action.label}</Link>;
+      return <Link prefetch={false} href={action.href} className="text-sm font-semibold text-teal-900 underline">{action.label}</Link>;
     case 'refresh':
       return <Button variant="secondary" onClick={onRefresh}>Refresh and choose again</Button>;
     case 'retry':

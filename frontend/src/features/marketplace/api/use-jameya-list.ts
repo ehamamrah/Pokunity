@@ -20,5 +20,6 @@ export function useJameyaList(filters: MarketplaceFilters) {
     staleTime: TIMING.staleTimeMs,
     refetchInterval: TIMING.marketplaceRefetchMs,
     refetchOnWindowFocus: true,
+    refetchIntervalInBackground: false,
   });
 }

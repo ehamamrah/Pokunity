@@ -29,8 +29,8 @@ function copyFor(state: CheckoutState): OutcomeCopy | null {
 function OutcomeLinks({ retryHref, retryable }: { retryHref: string; retryable: boolean }) {
   return (
     <div className="flex flex-wrap gap-4 text-sm font-semibold">
-      {retryable ? <Link className="text-teal-800 underline" href={retryHref}>Choose a seat again</Link> : null}
-      <Link className="text-teal-800 underline" href={ROUTES.reservations}>My reservations</Link>
+      {retryable ? <Link prefetch={false} className="text-teal-800 underline" href={retryHref}>Choose a seat again</Link> : null}
+      <Link prefetch={false} className="text-teal-800 underline" href={ROUTES.reservations}>My reservations</Link>
     </div>
   );
 }
