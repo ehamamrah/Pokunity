@@ -102,12 +102,14 @@ directly (`poll-policy.ts`):
 | Status | Interval | Stops when |
 |---|---|---|
 | (not loaded) | 1.5 s | Loaded |
-| `HELD` | 5 s (detects sweeper expiry) | Status changes |
+| `HELD` | 5 s (detects sweeper expiry) | Status changes, or the tab is hidden |
 | `PAYMENT_PENDING` | 1.5 s for the first 15 s, then 3 s | Status becomes terminal |
 | `CONFIRMED`, `EXPIRED`, `CANCELLED`, `FAILED` | Never (`false`) | Terminal |
 
-Polling continues in the background on the checkout page. A payment outcome must not be missed
-because the tab was hidden.
+Polling pauses while the tab is hidden, on every resource. When the tab becomes visible, the query
+refetches at once, and the server's status is what the page shows. A payment that settled while the
+tab was hidden therefore appears on return, with no stale state in between. Full policy:
+[performance/frontend.md](../performance/frontend.md#4-caching-and-polling-policy).
 
 ## 6. Conflict handling summary
 

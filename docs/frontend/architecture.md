@@ -115,6 +115,10 @@ Key decisions:
   relayed unchanged. Hop-by-hop headers, `set-cookie` and encoding headers are dropped.
 - **Provider callbacks are blocked at the BFF.** `POST /api/v1/payments/webhook` returns 404 here;
   the provider calls the backend directly and is authenticated by HMAC.
+- **One backend client.** Every backend call (proxy, login, server prefetch) goes through
+  `backend-client.ts`: keep-alive pool, 10 s timeout, and a circuit breaker that fails fast with
+  `Retry-After` when the backend is unhealthy. Details and numbers are in
+  [performance/frontend.md](../performance/frontend.md#5-bff-resilience).
 - **Runtime configuration.** `BACKEND_INTERNAL_URL` is read per request, so one image runs in any
   environment. This is why the proxy is a route handler and not a `next.config` rewrite (rewrites
   are baked in at build time).
@@ -129,9 +133,17 @@ Key decisions:
 | Form drafts, selection | Component state | Local, short-lived |
 | Idempotency keys | Module registry (`shared/lib/idempotency.ts`) | One key per user intent, reused across automatic retries |
 | Analytics queue | Module singleton (`analytics`) | Batching across page transitions |
+| Marketplace data | Server prefetch, hydrated into TanStack Query | First paint has data; no request waterfall after hydration |
 
 Every API response is parsed by a zod schema in `shared/contract/schemas.ts` at the client boundary.
 A response that does not match becomes a `ContractError` rather than malformed data in the UI.
+
+### Query options as the single source of truth
+
+Each read is a factory (`jameyaListOptions`, `featuredOptions`, `jameyaDetailOptions`, `meOptions`)
+that returns the key, the function and the policy. The server prefetch and the client hooks call the
+same factory, so the hydrated cache entry is exactly the one the client looks up. The client is
+injectable: the browser uses `apiClient`, the server uses a client bound to the viewer's cookie.
 
 ## 7. Design patterns
 
@@ -145,7 +157,9 @@ A response that does not match becomes a `ContractError` rather than malformed d
 | Strategy | `sort-options.ts`, `badges.ts`, `error-strategy.ts`, `outcome-copy.ts` | Per-option behavior in one table; exhaustive records |
 | State machine | `checkout/model/checkout-machine.ts` | Pure reducer; the server status is replayed into it |
 | Observer | `shared/lib/use-intersection.ts` (impressions, infinite scroll) | Visibility without polling |
-| Retry policy | `shared/api-client/retry.ts` | Retry only what is not definitive; honour `Retry-After` |
+| Retry policy | `shared/api-client/retry.ts`, `backoff.ts` | Retry only what is not definitive; jittered backoff; honour `Retry-After` |
+| Circuit breaker | `server/bff/circuit-breaker.ts` | Fail fast when the backend is unhealthy; one probe to recover |
+| Rate gate | `shared/api-client/rate-gate.ts` | Hold writes locally for the server's `Retry-After` |
 
 ## 8. Related documents
 

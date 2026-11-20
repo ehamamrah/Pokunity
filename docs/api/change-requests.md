@@ -144,3 +144,20 @@ Interpretations chosen by the backend where the contract is silent. Each is back
 | GAP-FE-009 | `viewer.canReserve` is `false` only for a KYC block (`blockingReason` set), an existing active reservation in this Jameya (`activeReservationId` set), or no available unrestricted seat. The hold limit does **not** affect `canReserve`; it surfaces as `409 HOLD_LIMIT_REACHED` at reservation time. |
 | GAP-FE-010 | Agreed gap. Recommendation: short-lived access tokens + rotating refresh tokens and a Redis `jti` denylist for logout. |
 | GAP-FE-011 | The backend caps `GET /reservations` at the 200 most recent. Pagination is recommended as an additive change. |
+
+### GAP-FE-012: The BFF returns 504 for backend timeouts, which the contract does not list
+- **Status:** open
+- **Gap:** the status table has no 504. A backend that does not answer within 10 s is reported by
+  the BFF as `504` with `INTERNAL_ERROR`.
+- **Interpretation:** the envelope is the contract's; only the status is extra. The UI treats it as a
+  retryable failure.
+- **Request:** add `504` (or specify that gateway timeouts use 503) to the README status table.
+
+### GAP-FE-013: ETags on marketplace and profile reads change on every response
+- **Status:** open
+- **Gap:** `GET /jameyas` changes its `asOf` and `GET /me` changes `kycCheckedAt` on every call, so the
+  ETag changes too. Conditional GET (`If-None-Match`) therefore rarely returns 304.
+- **Interpretation:** the BFF forwards `If-None-Match` and relays `304` unchanged, so the feature works
+  when the body is stable.
+- **Request:** compute the ETag from stable content (for example, a hash of the rows without `asOf`), or
+  document that ETags are not stable across reads.
