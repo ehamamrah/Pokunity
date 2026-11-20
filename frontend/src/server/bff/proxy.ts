@@ -1,6 +1,8 @@
 import { NextResponse, type NextRequest } from 'next/server';
+import type { Response as UndiciResponse } from 'undici';
 import { createUuid } from '@/shared/lib/uuid';
-import { backendBaseUrl, isBlockedPath, requiresSession, SESSION_COOKIE } from './config';
+import { isBlockedPath, requiresSession, SESSION_COOKIE } from './config';
+import { callBackend, unavailableResponse, type BackendOutcome } from './backend-client';
 import { expiredSessionCookie, isSecureRequest } from './cookies';
 import { errorResponse } from './envelope';
 
@@ -21,7 +23,7 @@ const NOT_RELAYED = new Set([
 const FORWARDED_HEADERS = ['accept', 'content-type', 'idempotency-key'] as const;
 
 export function upstreamUrl(segments: readonly string[], search: string): string {
-  return `${backendBaseUrl()}/api/v1/${segments.map(encodeURIComponent).join('/')}${search}`;
+  return `/api/v1/${segments.map(encodeURIComponent).join('/')}${search}`;
 }
 
 export function buildUpstreamHeaders(request: Request, token: string | undefined, requestId: string): Headers {
@@ -50,19 +52,17 @@ async function readBody(request: NextRequest): Promise<string | undefined> {
   return text.length > 0 ? text : undefined;
 }
 
-async function forward(request: NextRequest, segments: string[], token: string | undefined, requestId: string): Promise<Response> {
-  return fetch(upstreamUrl(segments, request.nextUrl.search), {
+async function forward(request: NextRequest, segments: string[], token: string | undefined, requestId: string): Promise<BackendOutcome> {
+  return callBackend(upstreamUrl(segments, request.nextUrl.search), {
     method: request.method,
     headers: buildUpstreamHeaders(request, token, requestId),
     body: await readBody(request),
-    cache: 'no-store',
-    redirect: 'manual',
   });
 }
 
 /** Expired/invalid JWT at the backend: drop the cookie so the next navigation goes to login. */
-function relayUpstream(upstream: Response, token: string | undefined, requestId: string, secure: boolean): NextResponse {
-  const response = new NextResponse(upstream.body, { status: upstream.status, headers: relayHeaders(upstream.headers) });
+function relayUpstream(upstream: UndiciResponse, token: string | undefined, requestId: string, secure: boolean): NextResponse {
+  const response = new NextResponse(upstream.body as BodyInit | null, { status: upstream.status, headers: relayHeaders(upstream.headers) });
   if (!response.headers.get('x-request-id')) response.headers.set('x-request-id', requestId);
   if (upstream.status === 401 && token) {
     response.cookies.set(expiredSessionCookie(secure));
@@ -79,10 +79,7 @@ export async function proxyRequest(request: NextRequest, segments: string[]): Pr
   if (!token && requiresSession(segments)) {
     return errorResponse(401, 'UNAUTHORIZED', 'Please sign in to continue.', requestId);
   }
-  try {
-    const upstream = await forward(request, segments, token, requestId);
-    return relayUpstream(upstream, token, requestId, secure);
-  } catch {
-    return errorResponse(503, 'INTERNAL_ERROR', 'The service is temporarily unavailable. Please try again.', requestId);
-  }
+  const outcome = await forward(request, segments, token, requestId);
+  if (outcome.kind === 'response') return relayUpstream(outcome.response, token, requestId, secure);
+  return unavailableResponse(outcome, requestId) ?? errorResponse(503, 'INTERNAL_ERROR', 'Service unavailable.', requestId);
 }

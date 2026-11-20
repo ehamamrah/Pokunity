@@ -1,8 +1,9 @@
 import { NextResponse, type NextRequest } from 'next/server';
+import type { Response as UndiciResponse } from 'undici';
 import { z } from 'zod';
 import { createUuid } from '@/shared/lib/uuid';
 import { errorEnvelopeSchema, loginResponseSchema } from '@/shared/contract';
-import { backendBaseUrl } from './config';
+import { callBackend, unavailableResponse } from './backend-client';
 import { expiredSessionCookie, isSecureRequest, sessionCookie } from './cookies';
 import { errorResponse } from './envelope';
 import { relayHeaders } from './proxy';
@@ -18,17 +19,22 @@ async function parseCredentials(request: NextRequest): Promise<z.infer<typeof lo
   return parsed.success ? parsed.data : null;
 }
 
-async function callBackendLogin(credentials: z.infer<typeof loginBodySchema>, requestId: string): Promise<Response> {
-  return fetch(`${backendBaseUrl()}/api/v1/auth/login`, {
+function callBackendLogin(credentials: z.infer<typeof loginBodySchema>, requestId: string) {
+  return callBackend('/api/v1/auth/login', {
     method: 'POST',
-    headers: { 'content-type': 'application/json', 'x-request-id': requestId },
+    headers: new Headers({ 'content-type': 'application/json', 'x-request-id': requestId }),
     body: JSON.stringify(credentials),
-    cache: 'no-store',
   });
 }
 
+async function relayLogin(upstream: UndiciResponse, request: NextRequest, requestId: string): Promise<NextResponse> {
+  const text = await upstream.text();
+  if (upstream.status < 200 || upstream.status >= 300) return passThroughError(upstream, text, requestId);
+  return issueSession(parseJson(text), request, requestId);
+}
+
 /** Relays a backend error only when it is a contract envelope; anything else becomes a typed error. */
-function passThroughError(upstream: Response, bodyText: string, requestId: string): NextResponse {
+function passThroughError(upstream: UndiciResponse, bodyText: string, requestId: string): NextResponse {
   const isEnvelope = errorEnvelopeSchema.safeParse(parseJson(bodyText)).success;
   if (!isEnvelope) return errorResponse(upstream.status, 'INTERNAL_ERROR', 'Sign-in failed.', requestId);
   return new NextResponse(bodyText, { status: upstream.status, headers: relayHeaders(upstream.headers) });
@@ -52,14 +58,9 @@ export async function handleLogin(request: NextRequest): Promise<Response> {
   if (!credentials) {
     return errorResponse(400, 'VALIDATION_ERROR', 'Enter a valid email and a password of at least 8 characters.', requestId);
   }
-  try {
-    const upstream = await callBackendLogin(credentials, requestId);
-    const text = await upstream.text();
-    if (!upstream.ok) return passThroughError(upstream, text, requestId);
-    return issueSession(parseJson(text), request, requestId);
-  } catch {
-    return errorResponse(503, 'INTERNAL_ERROR', 'Sign-in is temporarily unavailable. Please try again.', requestId);
-  }
+  const outcome = await callBackendLogin(credentials, requestId);
+  if (outcome.kind !== 'response') return unavailableResponse(outcome, requestId) ?? errorResponse(503, 'INTERNAL_ERROR', 'Sign-in is unavailable.', requestId);
+  return relayLogin(outcome.response, request, requestId);
 }
 
 function issueSession(payload: unknown, request: NextRequest, requestId: string): NextResponse {
