@@ -19,3 +19,18 @@ services:
     depends_on:
       postgres: { condition: service_healthy }
       redis: { condition: service_healthy }
+
+  # HTTP benchmark runner (autocannon) inside the compose network, against the running backend:
+  #   docker compose -f docker-compose.yml -f backend/docker-compose.test.yml run --rm backend-bench
+  backend-bench:
+    profiles: ["bench"]
+    build:
+      context: ./backend
+      target: test
+    command: ["npm", "run", "bench"]
+    environment:
+      BENCH_BASE_URL: http://backend:4000
+      DATABASE_URL: postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      JWT_SECRET: ${JWT_SECRET:?copy .env.example to .env}
+    depends_on:
+      backend: { condition: service_healthy }
