@@ -1,25 +1,10 @@
 'use client';
 
 import { useInfiniteQuery } from '@tanstack/react-query';
-import { TIMING } from '@/shared/config/timing';
-import { queryKeys } from '@/shared/query';
-import { nextPageParam } from '../model/paging';
 import type { MarketplaceFilters } from '../model/filters';
-import { fetchJameyaPage } from './jameya-catalog';
+import { jameyaListOptions } from './jameya-catalog';
 
-/**
- * Ranked list with infinite pagination. Refetches in the background while visible,
- * and on window focus, so seats-left and badges stay within the contract's 5 s freshness.
- */
+/** Ranked list with infinite pagination. Options are shared with the server prefetch, so the first page is already cached. */
 export function useJameyaList(filters: MarketplaceFilters) {
-  return useInfiniteQuery({
-    queryKey: queryKeys.jameyas.list(filters),
-    queryFn: ({ pageParam }) => fetchJameyaPage(filters, pageParam),
-    initialPageParam: 1,
-    getNextPageParam: (lastPage) => nextPageParam(lastPage.meta),
-    staleTime: TIMING.staleTimeMs,
-    refetchInterval: TIMING.marketplaceRefetchMs,
-    refetchOnWindowFocus: true,
-    refetchIntervalInBackground: false,
-  });
+  return useInfiniteQuery(jameyaListOptions(filters));
 }

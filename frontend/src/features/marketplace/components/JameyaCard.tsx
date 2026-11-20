@@ -1,11 +1,13 @@
 'use client';
 
 import Link from 'next/link';
-import { useRef, type ReactNode } from 'react';
+import { memo, useRef, type ReactNode } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import { ROUTES } from '@/shared/config/routes';
 import type { JameyaSummary } from '@/shared/contract';
 import { analytics, type AnalyticsSurface, type ExperimentAssignment, type ImpressionLedger } from '@/features/analytics';
 import { useImpression } from '../hooks/use-impression';
+import { prefetchJameya } from '../api/jameya-catalog';
 import { JameyaBadges } from './JameyaBadges';
 import { JameyaFacts } from './JameyaFacts';
 import { RankingReasons } from './RankingReasons';
@@ -30,9 +32,11 @@ interface CardLinkProps {
 
 /** The whole card body is one link, so the click target is large (WCAG 2.5.8). */
 function CardLink({ jameya, position, surface, experiment, children }: CardLinkProps) {
+  const queryClient = useQueryClient();
   const onNavigate = () => analytics.track({ type: 'click', jameyaId: jameya.id, surface, position, experiment });
+  const warm = () => prefetchJameya(queryClient, jameya.id);
   return (
-    <Link prefetch={false} href={ROUTES.jameya(jameya.id)} onClick={onNavigate} className="flex flex-1 flex-col gap-4 rounded-2xl p-4 focus-visible:outline-2 focus-visible:outline-teal-600">
+    <Link prefetch={false} href={ROUTES.jameya(jameya.id)} onClick={onNavigate} onMouseEnter={warm} onFocus={warm} className="flex flex-1 flex-col gap-4 rounded-2xl p-4 focus-visible:outline-2 focus-visible:outline-teal-600">
       {children}
     </Link>
   );
@@ -50,7 +54,7 @@ function CardBody({ jameya }: { jameya: JameyaSummary }) {
 }
 
 /** Container: wires impression tracking; the body is presentational. */
-export function JameyaCard({ jameya, position, surface, experiment, ledger, className }: JameyaCardProps) {
+function JameyaCardView({ jameya, position, surface, experiment, ledger, className }: JameyaCardProps) {
   const ref = useRef<HTMLLIElement>(null);
   useImpression(ref, { jameyaId: jameya.id, surface, position, experiment }, ledger);
   return (
@@ -64,3 +68,6 @@ export function JameyaCard({ jameya, position, surface, experiment, ledger, clas
     </li>
   );
 }
+
+/** Memoized: a list refetch re-renders the page, but only cards whose data changed re-render. */
+export const JameyaCard = memo(JameyaCardView);
