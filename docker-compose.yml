@@ -1,0 +1,62 @@
+name: pokunity
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:?copy .env.example to .env}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?copy .env.example to .env}
+      POSTGRES_DB: ${POSTGRES_DB:?copy .env.example to .env}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+  redis:
+    image: redis:7-alpine
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+  backend:
+    build: ./backend
+    environment:
+      NODE_ENV: production
+      PORT: 4000
+      DATABASE_URL: postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      REDIS_URL: redis://redis:6379
+      JWT_SECRET: ${JWT_SECRET:?copy .env.example to .env}
+      PAYMENT_WEBHOOK_SECRET: ${PAYMENT_WEBHOOK_SECRET:?copy .env.example to .env}
+      PAYMENT_WEBHOOK_URL: http://backend:4000/api/v1/payments/webhook
+      HOLD_TTL_SECONDS: 300
+      SEED_JAMEYAS: 5000
+    ports:
+      - "4000:4000"
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis: { condition: service_healthy }
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:4000/api/v1/health || exit 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+      start_period: 20s
+
+  frontend:
+    build: ./frontend
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+      BACKEND_INTERNAL_URL: http://backend:4000
+    ports:
+      - "3000:3000"
+    depends_on:
+      backend: { condition: service_healthy }
+
+volumes:
+  pgdata:

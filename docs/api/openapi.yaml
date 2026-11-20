@@ -1,0 +1,549 @@
+openapi: 3.0.3
+info:
+  title: Pokunity API
+  version: 1.0.0
+  description: >
+    Pokunity (Pocket Community) Jameya marketplace API. Human-readable docs with
+    samples live next to this file (README.md, auth.md, jameyas.md, reservations.md,
+    payments-webhook.md, events-and-health.md). This file is the contract source of truth.
+servers:
+  - url: http://localhost:4000/api/v1
+  - url: http://localhost:3000/api/v1
+    description: Via Next.js rewrite (browser)
+security:
+  - bearerAuth: []
+tags:
+  - name: Auth
+  - name: Jameyas
+  - name: Reservations
+  - name: Payments
+  - name: Events
+  - name: Health
+
+paths:
+  /auth/login:
+    post:
+      tags: [Auth]
+      security: []
+      summary: Exchange credentials for JWT
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/LoginRequest' }
+      responses:
+        '200':
+          description: Logged in
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/LoginResponse' }
+        '400': { $ref: '#/components/responses/Error' }
+        '401': { $ref: '#/components/responses/Error' }
+        '429': { $ref: '#/components/responses/Error' }
+
+  /me:
+    get:
+      tags: [Auth]
+      summary: Current user profile, eligibility and limits
+      responses:
+        '200':
+          description: Profile
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Me' }
+        '401': { $ref: '#/components/responses/Error' }
+
+  /jameyas:
+    get:
+      tags: [Jameyas]
+      summary: Ranked, personalized, paginated marketplace (<=5s stale)
+      parameters:
+        - { name: sort, in: query, schema: { type: string, enum: [recommended, starting_soon, seats_left, monthly_asc, monthly_desc, newest], default: recommended } }
+        - { name: minMonthly, in: query, schema: { type: integer, minimum: 0 } }
+        - { name: maxMonthly, in: query, schema: { type: integer, minimum: 0 } }
+        - { name: duration, in: query, schema: { type: integer, minimum: 1 } }
+        - { name: q, in: query, schema: { type: string, minLength: 2 } }
+        - { name: availableOnly, in: query, schema: { type: boolean, default: true } }
+        - { name: page, in: query, schema: { type: integer, minimum: 1, default: 1 } }
+        - { name: pageSize, in: query, schema: { type: integer, minimum: 1, maximum: 50, default: 20 } }
+      responses:
+        '200':
+          description: Page of Jameyas
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data: { type: array, items: { $ref: '#/components/schemas/JameyaSummary' } }
+                  meta: { $ref: '#/components/schemas/ListMeta' }
+        '400': { $ref: '#/components/responses/Error' }
+        '401': { $ref: '#/components/responses/Error' }
+
+  /jameyas/featured:
+    get:
+      tags: [Jameyas]
+      summary: Marketing-featured Jameyas (max 10)
+      responses:
+        '200':
+          description: Featured list
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data: { type: array, items: { $ref: '#/components/schemas/JameyaSummary' } }
+                  meta:
+                    type: object
+                    properties: { asOf: { type: string, format: date-time } }
+        '401': { $ref: '#/components/responses/Error' }
+
+  /jameyas/{id}:
+    get:
+      tags: [Jameyas]
+      summary: Jameya detail with viewer-specific seat map
+      parameters: [ { $ref: '#/components/parameters/IdPath' } ]
+      responses:
+        '200':
+          description: Detail
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/JameyaDetail' }
+        '401': { $ref: '#/components/responses/Error' }
+        '404': { $ref: '#/components/responses/Error' }
+
+  /reservations:
+    post:
+      tags: [Reservations]
+      summary: Hold a seat temporarily (default 5 min)
+      parameters: [ { $ref: '#/components/parameters/IdempotencyKey' } ]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CreateReservationRequest' }
+      responses:
+        '201':
+          description: Seat held
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Reservation' }
+        '400': { $ref: '#/components/responses/Error' }
+        '401': { $ref: '#/components/responses/Error' }
+        '403': { $ref: '#/components/responses/Error' }
+        '409': { $ref: '#/components/responses/Error' }
+        '422': { $ref: '#/components/responses/Error' }
+        '429': { $ref: '#/components/responses/Error' }
+        '503': { $ref: '#/components/responses/Error' }
+    get:
+      tags: [Reservations]
+      summary: List my reservations (newest first)
+      parameters:
+        - name: status
+          in: query
+          style: form
+          explode: true
+          schema: { type: array, items: { $ref: '#/components/schemas/ReservationStatus' } }
+      responses:
+        '200':
+          description: Reservations
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data: { type: array, items: { $ref: '#/components/schemas/Reservation' } }
+        '401': { $ref: '#/components/responses/Error' }
+
+  /reservations/{id}:
+    get:
+      tags: [Reservations]
+      summary: Authoritative reservation status (poll target)
+      parameters: [ { $ref: '#/components/parameters/IdPath' } ]
+      responses:
+        '200':
+          description: Reservation
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Reservation' }
+        '401': { $ref: '#/components/responses/Error' }
+        '403': { $ref: '#/components/responses/Error' }
+        '404': { $ref: '#/components/responses/Error' }
+    delete:
+      tags: [Reservations]
+      summary: Release my HELD reservation (idempotent)
+      parameters: [ { $ref: '#/components/parameters/IdPath' } ]
+      responses:
+        '200':
+          description: Cancelled
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Reservation' }
+        '401': { $ref: '#/components/responses/Error' }
+        '403': { $ref: '#/components/responses/Error' }
+        '404': { $ref: '#/components/responses/Error' }
+        '409': { $ref: '#/components/responses/Error' }
+
+  /reservations/{id}/checkout:
+    post:
+      tags: [Reservations]
+      summary: Start payment authorization for a HELD reservation
+      parameters:
+        - { $ref: '#/components/parameters/IdPath' }
+        - { $ref: '#/components/parameters/IdempotencyKey' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CheckoutRequest' }
+      responses:
+        '202':
+          description: Payment authorizing; poll GET /reservations/{id}
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Reservation' }
+        '200':
+          description: Zero-fee seat confirmed immediately (payment null)
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Reservation' }
+        '400': { $ref: '#/components/responses/Error' }
+        '401': { $ref: '#/components/responses/Error' }
+        '403': { $ref: '#/components/responses/Error' }
+        '404': { $ref: '#/components/responses/Error' }
+        '409': { $ref: '#/components/responses/Error' }
+        '410': { $ref: '#/components/responses/Error' }
+        '422': { $ref: '#/components/responses/Error' }
+
+  /payments/webhook:
+    post:
+      tags: [Payments]
+      security: []
+      summary: Payment provider callback (HMAC signed)
+      parameters:
+        - { name: X-Pokunity-Signature, in: header, required: true, schema: { type: string } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/PaymentWebhookEvent' }
+      responses:
+        '200':
+          description: Received (possibly duplicate)
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [received, duplicate]
+                properties:
+                  received: { type: boolean }
+                  duplicate: { type: boolean }
+        '400': { $ref: '#/components/responses/Error' }
+        '401': { $ref: '#/components/responses/Error' }
+
+  /events:
+    post:
+      tags: [Events]
+      summary: Batched marketplace analytics events
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [events]
+              properties:
+                events:
+                  type: array
+                  maxItems: 50
+                  items: { $ref: '#/components/schemas/AnalyticsEvent' }
+      responses:
+        '202':
+          description: Accepted
+          content:
+            application/json:
+              schema:
+                type: object
+                properties: { accepted: { type: integer } }
+        '400': { $ref: '#/components/responses/Error' }
+        '401': { $ref: '#/components/responses/Error' }
+
+  /health:
+    get:
+      tags: [Health]
+      security: []
+      summary: Liveness and dependency health
+      responses:
+        '200':
+          description: Healthy
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Health' }
+        '503':
+          description: Database or redis down
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Health' }
+
+components:
+  securitySchemes:
+    bearerAuth: { type: http, scheme: bearer, bearerFormat: JWT }
+
+  parameters:
+    IdPath:
+      name: id
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: true
+      schema: { type: string, format: uuid }
+
+  responses:
+    Error:
+      description: Error envelope
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorResponse' }
+
+  schemas:
+    Money: { type: integer, description: Minor units (halalas), minimum: 0 }
+    Currency: { type: string, enum: [SAR] }
+    KycStatus: { type: string, enum: [VERIFIED, PENDING, REJECTED, UNKNOWN] }
+    RiskTier: { type: string, enum: [LOW, MEDIUM, HIGH] }
+    SeatStatus: { type: string, enum: [AVAILABLE, HELD, TAKEN] }
+    ReservationStatus: { type: string, enum: [HELD, PAYMENT_PENDING, CONFIRMED, EXPIRED, CANCELLED, FAILED] }
+    PaymentStatus: { type: string, enum: [AUTHORIZING, AUTHORIZED, CAPTURED, VOIDED, FAILED] }
+    JameyaBadge: { type: string, enum: [FEATURED, ALMOST_FULL, STARTING_SOON, NEW, BEST_MATCH] }
+    RestrictionReason: { type: string, enum: [KYC_REQUIRED, RISK_TIER, KYC_UNAVAILABLE] }
+    FailureReason: { type: string, enum: [PAYMENT_DECLINED, PAYMENT_TIMEOUT, HOLD_EXPIRED, SEAT_CONFLICT] }
+
+    ErrorCode:
+      type: string
+      enum: [VALIDATION_ERROR, UNAUTHORIZED, INVALID_CREDENTIALS, INVALID_SIGNATURE, KYC_REQUIRED,
+             RISK_RESTRICTED, FORBIDDEN, NOT_FOUND, SEAT_UNAVAILABLE, JAMEYA_FULL,
+             ACTIVE_RESERVATION_EXISTS, HOLD_LIMIT_REACHED, INVALID_STATE, IDEMPOTENCY_IN_PROGRESS,
+             RESERVATION_EXPIRED, IDEMPOTENCY_KEY_REUSED, RATE_LIMITED, KYC_UNAVAILABLE, INTERNAL_ERROR]
+
+    ErrorResponse:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: object
+          required: [code, message, traceId]
+          properties:
+            code: { $ref: '#/components/schemas/ErrorCode' }
+            message: { type: string }
+            details: { type: object, additionalProperties: true, nullable: true }
+            traceId: { type: string }
+
+    LoginRequest:
+      type: object
+      required: [email, password]
+      properties:
+        email: { type: string, format: email }
+        password: { type: string, minLength: 8 }
+
+    UserRef:
+      type: object
+      required: [id, name, email]
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string }
+        email: { type: string, format: email }
+
+    LoginResponse:
+      type: object
+      required: [accessToken, expiresIn, user]
+      properties:
+        accessToken: { type: string }
+        expiresIn: { type: integer, example: 3600 }
+        user: { $ref: '#/components/schemas/UserRef' }
+
+    Me:
+      allOf:
+        - $ref: '#/components/schemas/UserRef'
+        - type: object
+          required: [kycStatus, riskTier, preferences, limits]
+          properties:
+            kycStatus: { $ref: '#/components/schemas/KycStatus' }
+            kycCheckedAt: { type: string, format: date-time, nullable: true }
+            riskTier: { $ref: '#/components/schemas/RiskTier' }
+            preferences:
+              type: object
+              properties:
+                typicalMonthlyAmount: { $ref: '#/components/schemas/Money' }
+                preferredDurations: { type: array, items: { type: integer } }
+            limits:
+              type: object
+              required: [maxActiveHolds, activeHolds]
+              properties:
+                maxActiveHolds: { type: integer }
+                activeHolds: { type: integer }
+
+    Experiment:
+      type: object
+      required: [key, variant]
+      properties:
+        key: { type: string, example: ranking_v2 }
+        variant: { type: string, enum: [control, treatment] }
+
+    ListMeta:
+      type: object
+      required: [page, pageSize, total, asOf]
+      properties:
+        page: { type: integer }
+        pageSize: { type: integer }
+        total: { type: integer }
+        asOf: { type: string, format: date-time }
+        experiment: { $ref: '#/components/schemas/Experiment' }
+
+    JameyaSummary:
+      type: object
+      required: [id, name, monthlyAmount, currency, durationMonths, totalSeats, seatsAvailable,
+                 payoutAmount, minFee, maxFee, startDate, featured, badges, ranking, asOf]
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string }
+        monthlyAmount: { $ref: '#/components/schemas/Money' }
+        currency: { $ref: '#/components/schemas/Currency' }
+        durationMonths: { type: integer }
+        totalSeats: { type: integer }
+        seatsAvailable: { type: integer }
+        payoutAmount: { $ref: '#/components/schemas/Money' }
+        minFee: { $ref: '#/components/schemas/Money' }
+        maxFee: { $ref: '#/components/schemas/Money' }
+        startDate: { type: string, format: date }
+        featured: { type: boolean }
+        badges: { type: array, items: { $ref: '#/components/schemas/JameyaBadge' } }
+        ranking:
+          type: object
+          required: [score, reasons]
+          properties:
+            score: { type: number }
+            reasons: { type: array, items: { type: string } }
+        asOf: { type: string, format: date-time }
+
+    Seat:
+      type: object
+      required: [seatNumber, payoutMonth, fee, status, heldByViewer, restricted, restrictionReason]
+      properties:
+        seatNumber: { type: integer, minimum: 1 }
+        payoutMonth: { type: string, example: '2027-06' }
+        fee: { $ref: '#/components/schemas/Money' }
+        status: { $ref: '#/components/schemas/SeatStatus' }
+        heldByViewer: { type: boolean }
+        restricted: { type: boolean }
+        restrictionReason:
+          type: string
+          allOf: [ { $ref: '#/components/schemas/RestrictionReason' } ]
+          nullable: true
+
+    JameyaDetail:
+      allOf:
+        - $ref: '#/components/schemas/JameyaSummary'
+        - type: object
+          required: [seats, viewer]
+          properties:
+            seats: { type: array, items: { $ref: '#/components/schemas/Seat' } }
+            viewer:
+              type: object
+              required: [canReserve, blockingReason, activeReservationId]
+              properties:
+                canReserve: { type: boolean }
+                blockingReason:
+                  type: string
+                  allOf: [ { $ref: '#/components/schemas/RestrictionReason' } ]
+                  nullable: true
+                activeReservationId: { type: string, format: uuid, nullable: true }
+
+    CreateReservationRequest:
+      type: object
+      required: [jameyaId, seatNumber]
+      properties:
+        jameyaId: { type: string, format: uuid }
+        seatNumber: { type: integer, minimum: 1 }
+
+    CheckoutRequest:
+      type: object
+      required: [paymentMethodToken]
+      properties:
+        paymentMethodToken:
+          type: string
+          example: tok_success
+          description: Test tokens tok_success, tok_decline, tok_slow, tok_duplicate, tok_timeout
+
+    PaymentSummary:
+      type: object
+      required: [id, status, amount, currency]
+      properties:
+        id: { type: string, format: uuid }
+        status: { $ref: '#/components/schemas/PaymentStatus' }
+        amount: { $ref: '#/components/schemas/Money' }
+        currency: { $ref: '#/components/schemas/Currency' }
+
+    Reservation:
+      type: object
+      required: [id, jameyaId, jameyaName, seatNumber, fee, monthlyAmount, currency, status,
+                 expiresAt, failureReason, payment, createdAt, updatedAt]
+      properties:
+        id: { type: string, format: uuid }
+        jameyaId: { type: string, format: uuid }
+        jameyaName: { type: string }
+        seatNumber: { type: integer }
+        fee: { $ref: '#/components/schemas/Money' }
+        monthlyAmount: { $ref: '#/components/schemas/Money' }
+        currency: { $ref: '#/components/schemas/Currency' }
+        status: { $ref: '#/components/schemas/ReservationStatus' }
+        expiresAt: { type: string, format: date-time }
+        failureReason:
+          type: string
+          allOf: [ { $ref: '#/components/schemas/FailureReason' } ]
+          nullable: true
+        payment:
+          type: object
+          allOf: [ { $ref: '#/components/schemas/PaymentSummary' } ]
+          nullable: true
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+
+    PaymentWebhookEvent:
+      type: object
+      required: [eventId, type, paymentIntentId, amount, currency, occurredAt]
+      properties:
+        eventId: { type: string }
+        type: { type: string, enum: [payment.authorized, payment.failed, payment.captured, payment.voided] }
+        paymentIntentId: { type: string }
+        amount: { $ref: '#/components/schemas/Money' }
+        currency: { $ref: '#/components/schemas/Currency' }
+        occurredAt: { type: string, format: date-time }
+        failureCode: { type: string, nullable: true, example: INSUFFICIENT_FUNDS }
+
+    AnalyticsEvent:
+      type: object
+      required: [type, jameyaId, surface, occurredAt]
+      properties:
+        type: { type: string, enum: [impression, click, seat_selected, checkout_started] }
+        jameyaId: { type: string, format: uuid }
+        position: { type: integer, nullable: true }
+        surface: { type: string, enum: [marketplace_list, featured_carousel, jameya_detail] }
+        experiment: { $ref: '#/components/schemas/Experiment' }
+        occurredAt: { type: string, format: date-time }
+
+    Health:
+      type: object
+      required: [status, checks, time]
+      properties:
+        status: { type: string, enum: [ok, error] }
+        checks:
+          type: object
+          properties:
+            database: { type: string, enum: [up, down] }
+            redis: { type: string, enum: [up, down] }
+            kyc: { type: string, enum: [up, degraded] }
+        time: { type: string, format: date-time }

@@ -1,0 +1,3 @@
+# Sample Idempotency-Key UUIDs in API docs (not secrets)
+docs/api/reservations.md:generic-api-key:64
+docs/api/reservations.md:generic-api-key:147
