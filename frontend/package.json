@@ -14,7 +14,9 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
-    "mock:init": "msw init public --save"
+    "mock:init": "msw init public --save",
+    "check:bundle": "node scripts/check-bundle.mjs",
+    "build:verified": "next build && node scripts/check-bundle.mjs"
   },
   "dependencies": {
     "@tanstack/react-query": "^5.108.2",
