@@ -6,6 +6,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { ROUTES } from '@/shared/config/routes';
 import type { JameyaSummary } from '@/shared/contract';
 import { analytics, type AnalyticsSurface, type ExperimentAssignment, type ImpressionLedger } from '@/features/analytics';
+import { cn } from '@/shared/lib/cn';
 import { useImpression } from '../hooks/use-impression';
 import { prefetchJameya } from '../api/jameya-catalog';
 import { JameyaBadges } from './JameyaBadges';
@@ -58,7 +59,7 @@ function JameyaCardView({ jameya, position, surface, experiment, ledger, classNa
   const ref = useRef<HTMLLIElement>(null);
   useImpression(ref, { jameyaId: jameya.id, surface, position, experiment }, ledger);
   return (
-    <li ref={ref} className={className}>
+    <li ref={ref} className={cn('[content-visibility:auto] [contain-intrinsic-size:auto_18rem]', className)}>
       <article className="flex h-full flex-col rounded-2xl bg-white ring-1 ring-slate-200 transition hover:ring-teal-600">
         <CardLink jameya={jameya} position={position} surface={surface} experiment={experiment}>
           <CardBody jameya={jameya} />
