@@ -1,7 +1,8 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { AppConfig } from '../../../shared/config/app-config';
 import { Clock } from '../../../shared/clock/clock';
-import { CircuitBreaker } from '../domain/circuit-breaker';
+import { BreakerRegistry } from '../../../shared/resilience/breaker-registry';
+import { CircuitBreaker } from '../../../shared/resilience/circuit-breaker';
 import { withTimeout } from '../../../shared/utils/timeout';
 import { KycView } from '../domain/user.types';
 import { CachedKyc, KycCache } from '../infrastructure/kyc-cache';
@@ -24,8 +25,9 @@ export class KycService {
     private readonly cache: KycCache,
     private readonly clock: Clock,
     private readonly config: AppConfig,
+    breakers: BreakerRegistry,
   ) {
-    this.breaker = new CircuitBreaker({
+    this.breaker = breakers.get('kyc', {
       failureThreshold: config.env.KYC_BREAKER_FAILURE_THRESHOLD,
       openDurationMs: config.env.KYC_BREAKER_OPEN_MS,
     });
@@ -35,12 +37,28 @@ export class KycService {
     return this.breaker.state === 'CLOSED' ? 'up' : 'degraded';
   }
 
-  async getStatus(userId: string): Promise<KycView> {
+  /**
+   * `allowStale` (read pages only): a cached-but-not-fresh status is returned immediately and refreshed
+   * in the background (stale-while-revalidate), so a cache expiry wave never lands on request latency.
+   * The booking path never sets it: it always waits for a fresh answer (or the stale-if-error rules).
+   */
+  async getStatus(userId: string, options: { allowStale?: boolean } = {}): Promise<KycView> {
     const cached = await this.cache.get(userId);
     if (cached && this.cache.isFresh(cached, this.clock.now())) return toView(cached, false);
-    const pending = this.inFlight.get(userId) ?? this.refresh(userId, cached);
+    const pending = this.refreshOnce(userId, cached);
+    if (cached && options.allowStale) {
+      pending.catch(() => undefined);
+      return toView(cached, true);
+    }
+    return pending;
+  }
+
+  private refreshOnce(userId: string, cached: CachedKyc | null): Promise<KycView> {
+    const running = this.inFlight.get(userId);
+    if (running) return running;
+    const pending = this.refresh(userId, cached).finally(() => this.inFlight.delete(userId));
     this.inFlight.set(userId, pending);
-    return pending.finally(() => this.inFlight.delete(userId));
+    return pending;
   }
 
   private async refresh(userId: string, cached: CachedKyc | null): Promise<KycView> {

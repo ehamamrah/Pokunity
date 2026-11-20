@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { SqlExecutor } from '../../shared/database/sql-executor';
 import { AvailabilityGateService, GateDecision } from './application/availability-gate.service';
+import { SeatMapCache } from './application/seat-map.cache';
 import { BookingJameya, JameyasRepository } from './infrastructure/jameyas.repository';
 import { SeatsRepository } from './infrastructure/seats.repository';
 
@@ -18,6 +19,7 @@ export class CatalogFacade {
     private readonly jameyas: JameyasRepository,
     private readonly seats: SeatsRepository,
     private readonly gate: AvailabilityGateService,
+    private readonly seatMaps: SeatMapCache,
   ) {}
 
   findForBooking(jameyaId: string): Promise<BookingJameya | null> {
@@ -40,8 +42,12 @@ export class CatalogFacade {
     return this.seats.markTaken(tx, reservationId);
   }
 
-  /** Call after commit: keeps the fast-fail counter close to the truth (-1 claim, +1 release). */
+  /**
+   * Call after commit: keeps the fast-fail counter close to the truth (-1 claim, +1 release, 0 for
+   * HELD→TAKEN) and invalidates the cached seat maps of the affected Jameyas.
+   */
   async onSeatsChanged(changes: { jameyaId: string; delta: number }[]): Promise<void> {
-    await Promise.all(changes.map((c) => this.gate.adjust(c.jameyaId, c.delta)));
+    const adjustments = changes.filter((c) => c.delta !== 0).map((c) => this.gate.adjust(c.jameyaId, c.delta));
+    await Promise.all([...adjustments, this.seatMaps.invalidate(changes.map((c) => c.jameyaId))]);
   }
 }

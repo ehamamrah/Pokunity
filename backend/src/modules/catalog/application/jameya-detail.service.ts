@@ -4,12 +4,12 @@ import { Errors } from '../../../shared/errors/app-error';
 import { Eligibility } from '../../users/domain/user.types';
 import { UsersFacade } from '../../users/users.facade';
 import { JameyaListing, JameyaSummary, SeatRecord } from '../domain/jameya';
+import { baseSignalsOf } from '../domain/ranking/signals';
 import { blockingReasonOf, RestrictionReason, SeatView, toSeatView } from '../domain/seat-view';
-import { JameyasRepository } from '../infrastructure/jameyas.repository';
-import { SeatsRepository } from '../infrastructure/seats.repository';
 import { CatalogSnapshotService } from './catalog-snapshot.service';
 import { MarketplaceService } from './marketplace.service';
 import { RankingContextFactory } from './ranking-context.factory';
+import { SeatMapCache } from './seat-map.cache';
 
 export type JameyaDetail = JameyaSummary & {
   seats: SeatView[];
@@ -18,12 +18,14 @@ export type JameyaDetail = JameyaSummary & {
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-/** Jameya detail with a viewer-specific seat map, read authoritatively from PostgreSQL. */
+/**
+ * Jameya detail with a viewer-specific seat map. The seat map comes from one query (≤ 2 s cache,
+ * invalidated on seat changes); the viewer (profile + KYC + preferences) from one more.
+ */
 @Injectable()
 export class JameyaDetailService {
   constructor(
-    private readonly jameyas: JameyasRepository,
-    private readonly seats: SeatsRepository,
+    private readonly seatMaps: SeatMapCache,
     private readonly users: UsersFacade,
     private readonly snapshots: CatalogSnapshotService,
     private readonly rankingFactory: RankingContextFactory,
@@ -33,14 +35,13 @@ export class JameyaDetailService {
 
   async detail(viewerId: string, id: string): Promise<JameyaDetail> {
     if (!UUID.test(id)) throw Errors.notFound('Jameya');
-    const [listing, seats, eligibility] = await Promise.all([
-      this.jameyas.loadListing(id), this.seats.listSeats(id), this.users.getEligibility(viewerId),
-    ]);
-    if (!listing) throw Errors.notFound('Jameya');
-    const { featuredIds } = await this.snapshots.get();
-    const viewer = await this.rankingFactory.forViewer(viewerId, featuredIds, this.clock.now());
-    const summary = this.marketplace.present(listing, viewer);
-    return { ...summary, ...this.seatMap(listing, seats, eligibility, viewerId) };
+    const [map, viewer, snapshot] = await Promise.all([this.seatMaps.get(id), this.users.getViewer(viewerId), this.snapshots.get()]);
+    if (!map) throw Errors.notFound('Jameya');
+    const now = this.clock.now();
+    const listing: JameyaListing = { ...map.jameya, base: baseSignalsOf(map.jameya, now, snapshot.featuredSet) };
+    const ranking = this.rankingFactory.build(viewerId, viewer.personalization, snapshot.featuredSet, now);
+    const summary = this.marketplace.present(listing, ranking);
+    return { ...summary, ...this.seatMap(listing, map.seats, viewer.eligibility, viewerId) };
   }
 
   private seatMap(listing: JameyaListing, seats: SeatRecord[], eligibility: Eligibility, viewerId: string) {

@@ -1,10 +1,12 @@
-import { Controller, Get, Header, Param, Query } from '@nestjs/common';
+import { Controller, Get, Header, Param, Query, UseInterceptors } from '@nestjs/common';
+import { EtagInterceptor } from '../../../shared/http/etag.interceptor';
 import { AuthenticatedUser, CurrentUser } from '../../../shared/http/current-user.decorator';
 import { JameyaDetailService } from '../application/jameya-detail.service';
 import { MarketplaceService } from '../application/marketplace.service';
 import { ListJameyasQuery } from './dto/list-jameyas.query';
 
 @Controller('jameyas')
+@UseInterceptors(EtagInterceptor)
 export class JameyasController {
   constructor(
     private readonly marketplace: MarketplaceService,
@@ -24,7 +26,7 @@ export class JameyasController {
   }
 
   @Get(':id')
-  @Header('Cache-Control', 'private, no-store')
+  @Header('Cache-Control', 'private, no-cache')
   detail(@CurrentUser() user: AuthenticatedUser, @Param('id') id: string) {
     return this.details.detail(user.id, id);
   }

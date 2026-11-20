@@ -16,7 +16,18 @@ async function pendingPayment(token: string): Promise<{ m: Member; jameyaId: str
   const [jameyaId, m] = await Promise.all([createJameya(h), createMember(h)]);
   const reservationId = (await reserve(h, m, jameyaId, 2)).body.id;
   expect((await checkout(h, m, reservationId, token)).status).toBe(202);
+  await drainOutbox(); // AUTHORIZE is an outbox command (committed with the checkout)
   return { m, jameyaId, reservationId, payment: await paymentOf(h, reservationId) };
+}
+
+/** Confirmed seat, exactly one capture in the ledger and exactly one settlement command. */
+async function expectCapturedOnce(m: Member, jameyaId: string, reservationId: string, payment: PaymentRow): Promise<void> {
+  const view = (await getReservation(h, m, reservationId)).body;
+  expect([view.status, view.payment.status]).toEqual(['CONFIRMED', 'CAPTURED']);
+  expect(await ledgerOf(h, payment.id)).toEqual(['AUTHORIZE', 'CAPTURE']);
+  expect(await seatStatus(h, jameyaId, 2)).toBe('TAKEN');
+  const settlements = await h.db.query(`SELECT command FROM payment_outbox WHERE payment_id = $1 AND command <> 'AUTHORIZE'`, [payment.id]);
+  expect(settlements.rows).toEqual([{ command: 'CAPTURE' }]);
 }
 
 test('duplicate payment.authorized (3x concurrently) confirms once and captures once', async () => {
@@ -28,11 +39,7 @@ test('duplicate payment.authorized (3x concurrently) confirms once and captures 
   await drainOutbox();
   expect((await sendWebhook(h, event)).body).toEqual({ received: true, duplicate: true });
   await drainOutbox();
-  const view = (await getReservation(h, m, reservationId)).body;
-  expect([view.status, view.payment.status]).toEqual(['CONFIRMED', 'CAPTURED']);
-  expect(await ledgerOf(h, payment.id)).toEqual(['AUTHORIZE', 'CAPTURE']);
-  expect(await seatStatus(h, jameyaId, 2)).toBe('TAKEN');
-  expect((await h.db.query('SELECT 1 FROM payment_outbox WHERE payment_id = $1', [payment.id])).rowCount).toBe(1);
+  await expectCapturedOnce(m, jameyaId, reservationId, payment);
 });
 
 test('payment.failed marks the reservation FAILED and releases the seat; nothing is charged', async () => {

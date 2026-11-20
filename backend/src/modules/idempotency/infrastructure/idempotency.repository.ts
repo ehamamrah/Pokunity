@@ -1,9 +1,10 @@
 import { Injectable } from '@nestjs/common';
 import { Database } from '../../../shared/database/database.service';
+import { namedSql } from '../../../shared/database/sql-executor';
 import { IdempotencyRow } from '../domain/idempotency-record';
 
 // Claims a new key, or recycles one whose 24h retention has elapsed.
-const CLAIM_SQL = `
+const CLAIM_SQL = namedSql('idempotency_claim', `
   INSERT INTO idempotency_keys (user_id, key, request_hash, status, locked_until, expires_at)
   VALUES ($1, $2, $3, 'IN_PROGRESS', now() + make_interval(secs => $4), now() + interval '24 hours')
   ON CONFLICT (user_id, key) DO UPDATE
@@ -11,7 +12,7 @@ const CLAIM_SQL = `
         response_body = NULL, locked_until = EXCLUDED.locked_until, expires_at = EXCLUDED.expires_at,
         created_at = now()
     WHERE idempotency_keys.expires_at < now()
-  RETURNING 1`;
+  RETURNING 1`);
 
 const FIND_SQL = `
   SELECT request_hash, status, response_status, response_body, locked_until < now() AS lock_expired
@@ -23,9 +24,9 @@ const TAKE_OVER_SQL = `
   WHERE user_id = $1 AND key = $2 AND status = 'IN_PROGRESS' AND locked_until < now()
   RETURNING 1`;
 
-const COMPLETE_SQL = `
+const COMPLETE_SQL = namedSql('idempotency_complete', `
   UPDATE idempotency_keys SET status = 'COMPLETED', response_status = $3, response_body = $4
-  WHERE user_id = $1 AND key = $2`;
+  WHERE user_id = $1 AND key = $2`);
 
 @Injectable()
 export class IdempotencyRepository {

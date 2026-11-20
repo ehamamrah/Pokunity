@@ -17,8 +17,8 @@ export class MeController {
   @Get()
   @Header('Cache-Control', 'private, no-store')
   async me(@CurrentUser() user: AuthenticatedUser) {
-    const [profile, eligibility, activeHolds] = await Promise.all([
-      this.users.getProfile(user.id), this.users.getEligibility(user.id), this.reservations.activeHoldsCount(user.id),
+    const [{ profile, eligibility }, activeHolds] = await Promise.all([
+      this.users.getViewer(user.id), this.reservations.activeHoldsCount(user.id),
     ]);
     const { id, name, email, riskTier, preferences } = profile;
     const limits = { maxActiveHolds: eligibility.maxActiveHolds, activeHolds };

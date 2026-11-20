@@ -57,6 +57,7 @@ export class PaymentOutcomeService {
   async failed(tx: SqlExecutor, payment: PaymentRecord, reason: PaymentFailureReason, code: string): Promise<AppliedOutcome> {
     if (!(await this.payments.transition(tx, payment.id, 'FAILED', code))) return ignored;
     const result = await this.settlement.handler.fail(tx, payment.reservationId, reason);
+    await this.outbox.cancelPendingAuthorize(tx, payment.id);
     if (reason === 'PAYMENT_TIMEOUT') await this.outbox.enqueue(tx, payment.id, 'VOID');
     await this.record(tx, payment, `payment.failed.${reason.toLowerCase()}`);
     return { outcome: 'PROCESSED', afterCommit: result.afterCommit };

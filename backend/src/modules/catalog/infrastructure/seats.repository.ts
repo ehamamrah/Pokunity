@@ -1,14 +1,13 @@
 import { Injectable } from '@nestjs/common';
 import { Database } from '../../../shared/database/database.service';
-import { SqlExecutor } from '../../../shared/database/sql-executor';
-import { SeatRecord, SeatStatus } from '../domain/jameya';
+import { namedSql, SqlExecutor } from '../../../shared/database/sql-executor';
 
 // THE seat claim. Conditional on status = 'AVAILABLE', so exactly one concurrent transaction can win;
 // losers block on the row lock, re-evaluate the predicate after the winner commits, and match 0 rows.
-const CLAIM_SQL = `
+const CLAIM_SQL = namedSql('seats_claim', `
   UPDATE seats SET status = 'HELD', reservation_id = $3, holder_user_id = $4, updated_at = now()
   WHERE jameya_id = $1 AND seat_number = $2 AND status = 'AVAILABLE'
-  RETURNING fee`;
+  RETURNING fee`);
 
 // Releases only seats still HELD *by these reservations* (never someone else's or a TAKEN seat).
 const RELEASE_SQL = `
@@ -21,21 +20,9 @@ const TAKE_SQL = `
   WHERE reservation_id = $1 AND status = 'HELD'
   RETURNING 1`;
 
-const SEATS_SQL = `
-  SELECT seat_number, fee, status, reservation_id, holder_user_id FROM seats
-  WHERE jameya_id = $1 ORDER BY seat_number`;
-
 const AVAILABLE_COUNTS_SQL = `
   SELECT jameya_id, count(*) FILTER (WHERE status = 'AVAILABLE')::int AS available
   FROM seats WHERE jameya_id = ANY($1::uuid[]) GROUP BY jameya_id`;
-
-interface SeatRow {
-  seat_number: number;
-  fee: number;
-  status: SeatStatus;
-  reservation_id: string | null;
-  holder_user_id: string | null;
-}
 
 @Injectable()
 export class SeatsRepository {
@@ -54,14 +41,6 @@ export class SeatsRepository {
 
   async markTaken(tx: SqlExecutor, reservationId: string): Promise<boolean> {
     return (await tx.query(TAKE_SQL, [reservationId])).rowCount === 1;
-  }
-
-  async listSeats(jameyaId: string): Promise<SeatRecord[]> {
-    const { rows } = await this.db.query<SeatRow>(SEATS_SQL, [jameyaId]);
-    return rows.map((r) => ({
-      seatNumber: r.seat_number, fee: r.fee, status: r.status,
-      reservationId: r.reservation_id, holderUserId: r.holder_user_id,
-    }));
   }
 
   async availableCounts(jameyaIds: string[]): Promise<Map<string, number>> {

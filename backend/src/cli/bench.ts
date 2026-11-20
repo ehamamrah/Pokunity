@@ -20,7 +20,7 @@ const env = {
 };
 
 async function prepare(pool: Pool): Promise<{ tokens: string[]; jameyaId: string }> {
-  const users = await loadUsers(pool, 200);
+  const users = await loadUsers(pool, 1000); // stay under per-member limits (e.g. 30 list calls / 10 s)
   const tokens = users.map((u) => mintToken(u, process.env.JWT_SECRET ?? ''));
   const { rows } = await pool.query<{ id: string }>(`SELECT id FROM jameyas WHERE code = 'DEMO-RIYADH'`);
   return { tokens, jameyaId: rows[0].id };

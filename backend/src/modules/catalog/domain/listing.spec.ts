@@ -1,15 +1,17 @@
 import { JameyaListing } from './jameya';
+import { baseSignalsOf } from './ranking/signals';
 import { buildFilterSpec } from './listing-filter';
 import { Ranked, SORT_STRATEGIES } from './sort-strategies';
 
-const base: JameyaListing = {
+const row = {
   id: 'a', name: 'Riyadh Savers 12M', monthlyAmount: 100000, durationMonths: 12, totalSeats: 12, seatsAvailable: 3,
-  minFee: 0, maxFee: 1000, startDate: '2026-12-01', createdAt: new Date('2026-11-01T00:00:00Z'),
+  minFee: 0, maxFee: 1000, startDate: '2026-12-01', createdAt: '2026-11-01T00:00:00.000Z',
 };
+const base: JameyaListing = { ...row, base: baseSignalsOf(row, new Date('2026-11-21T00:00:00Z'), new Set()) };
 const items: JameyaListing[] = [
   base,
   { ...base, id: 'b', name: 'Jeddah Circle 10M', monthlyAmount: 120000, durationMonths: 10, seatsAvailable: 0, startDate: '2026-12-15' },
-  { ...base, id: 'c', name: 'Dammam Unity 6M', monthlyAmount: 50000, durationMonths: 6, seatsAvailable: 5, createdAt: new Date('2026-11-20T00:00:00Z') },
+  { ...base, id: 'c', name: 'Dammam Unity 6M', monthlyAmount: 50000, durationMonths: 6, seatsAvailable: 5, createdAt: '2026-11-20T00:00:00.000Z' },
 ];
 
 test('filters combine as a conjunction of specifications', () => {

@@ -19,5 +19,8 @@ export interface Signals {
 
 export interface RankingStrategy {
   readonly variant: 'control' | 'treatment';
+  /** Score only (hot path: called for every candidate, allocation-free). */
+  score(jameya: JameyaListing, context: RankingContext): number;
+  /** Score plus human-readable reasons (called for the returned page only). */
   rank(jameya: JameyaListing, context: RankingContext): Ranking;
 }

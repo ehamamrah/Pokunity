@@ -3,7 +3,7 @@ import { Database } from '../../../shared/database/database.service';
 import { SqlExecutor } from '../../../shared/database/sql-executor';
 import { Errors } from '../../../shared/errors/app-error';
 import { AuditFacade } from '../../audit/audit.facade';
-import { AuthorizationRequest, PaymentsFacade, PaymentSummary } from '../../payments/payments.facade';
+import { PaymentsFacade, PaymentSummary } from '../../payments/payments.facade';
 import { ReservationRecord, ReservationView } from '../domain/reservation.types';
 import { ReservationsRepository } from '../infrastructure/reservations.repository';
 import { toReservationView } from './reservation.presenter';
@@ -15,7 +15,7 @@ export interface CheckoutResult { httpStatus: 200 | 202; body: ReservationView }
 
 type TxOutcome =
   | { kind: 'free'; record: ReservationRecord; afterCommit: () => Promise<void> }
-  | { kind: 'paid'; record: ReservationRecord; payment: PaymentSummary; request: AuthorizationRequest };
+  | { kind: 'paid'; record: ReservationRecord; payment: PaymentSummary };
 
 /**
  * HELD → PAYMENT_PENDING (conditional on expires_at > now()) + payment AUTHORIZING in ONE
@@ -37,7 +37,7 @@ export class CheckoutUseCase {
       await outcome.afterCommit();
       return { httpStatus: 200, body: toReservationView(outcome.record, null) };
     }
-    await this.payments.requestAuthorization(outcome.payment.id, outcome.request);
+    this.payments.requestAuthorization();
     return { httpStatus: 202, body: toReservationView(outcome.record, outcome.payment) };
   }
 
@@ -51,7 +51,7 @@ export class CheckoutUseCase {
     const request = { reservationId: record.id, userId: cmd.userId, amount: record.fee, token: cmd.paymentMethodToken };
     const payment = await this.payments.open(tx, request);
     await this.audit.record({ actor: cmd.userId, action: 'reservation.checkout_started', entityType: 'reservation', entityId: record.id, data: { paymentId: payment.id } }, tx);
-    return { kind: 'paid', record, payment, request };
+    return { kind: 'paid', record, payment };
   }
 
   private async confirmFree(tx: SqlExecutor, current: ReservationRecord): Promise<TxOutcome> {

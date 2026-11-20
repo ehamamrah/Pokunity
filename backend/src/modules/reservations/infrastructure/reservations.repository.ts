@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { Database } from '../../../shared/database/database.service';
-import { SqlExecutor } from '../../../shared/database/sql-executor';
+import { namedSql, SqlExecutor } from '../../../shared/database/sql-executor';
 import { sourcesOf } from '../domain/reservation-state-machine';
 import { FailureReason, ReservationRecord, ReservationStatus } from '../domain/reservation.types';
 
@@ -15,13 +15,14 @@ export interface NewReservation {
   fee: number; monthlyAmount: number; ttlSeconds: number;
 }
 
-const INSERT_SQL = `
+const INSERT_SQL = namedSql('reservations_insert', `
   INSERT INTO reservations (id, user_id, jameya_id, jameya_name, seat_number, fee, monthly_amount, status, expires_at)
-  VALUES ($1, $2, $3, $4, $5, $6, $7, 'HELD', now() + make_interval(secs => $8)) RETURNING *`;
+  VALUES ($1, $2, $3, $4, $5, $6, $7, 'HELD', now() + make_interval(secs => $8)) RETURNING *`);
 
-const ACTIVE_SQL = `
+// Answered by the covering partial index reservations_active_by_user_idx (index-only scan).
+const ACTIVE_SQL = namedSql('reservations_active_summary', `
   SELECT count(*)::int AS total, (array_agg(id) FILTER (WHERE jameya_id = $2))[1] AS in_jameya
-  FROM reservations WHERE user_id = $1 AND status IN ('HELD', 'PAYMENT_PENDING')`;
+  FROM reservations WHERE user_id = $1 AND status IN ('HELD', 'PAYMENT_PENDING')`);
 
 // Conditional, state-machine-driven transition. $5 = require the hold to still be unexpired.
 const TRANSITION_SQL = `

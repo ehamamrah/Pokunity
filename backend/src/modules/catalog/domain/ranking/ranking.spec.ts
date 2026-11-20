@@ -2,16 +2,18 @@ import { assignVariant, bucketOf } from '../../../analytics/domain/experiments';
 import { computeBadges } from '../badges';
 import { JameyaListing, payoutMonth } from '../jameya';
 import { RankingContext } from './ranking-context';
+import { baseSignalsOf } from './signals';
 import { CONTROL_WEIGHTS, rankingStrategyFor, TREATMENT_WEIGHTS } from './ranking-strategies';
 
 const now = new Date('2026-11-21T10:00:00.000Z');
 
-function listing(overrides: Partial<JameyaListing> = {}): JameyaListing {
-  return {
+function listing(overrides: Partial<JameyaListing> = {}, featured: ReadonlySet<string> = new Set(['j1'])): JameyaListing {
+  const row = {
     id: 'j1', name: 'Riyadh Savers 12M', monthlyAmount: 100000, durationMonths: 12, totalSeats: 12,
-    seatsAvailable: 2, minFee: 0, maxFee: 36000, startDate: '2026-12-01', createdAt: new Date('2026-11-01T00:00:00Z'),
+    seatsAvailable: 2, minFee: 0, maxFee: 36000, startDate: '2026-12-01', createdAt: '2026-11-01T00:00:00.000Z',
     ...overrides,
   };
+  return { ...row, base: baseSignalsOf(row, now, featured) };
 }
 
 function context(overrides: Partial<RankingContext> = {}): RankingContext {
@@ -33,8 +35,8 @@ test('treatment explains a personal match with human-readable reasons', () => {
 });
 
 test('treatment ranks a matching Jameya above a mismatched one; control ignores preferences', () => {
-  const match = listing();
-  const mismatch = listing({ id: 'j2', monthlyAmount: 500000, durationMonths: 24, totalSeats: 24, seatsAvailable: 4 });
+  const match = listing({}, new Set());
+  const mismatch = listing({ id: 'j2', monthlyAmount: 500000, durationMonths: 24, totalSeats: 24, seatsAvailable: 4 }, new Set());
   const ctx = context({ featuredIds: new Set() });
   const t = rankingStrategyFor('treatment');
   expect(t.rank(match, ctx).score).toBeGreaterThan(t.rank(mismatch, ctx).score);
@@ -51,7 +53,7 @@ test('members without preferences get neutral personal signals', () => {
 test('badges: featured, almost full, starting soon; BEST_MATCH only in treatment', () => {
   expect(computeBadges(listing(), context(), 'treatment')).toEqual(['FEATURED', 'ALMOST_FULL', 'STARTING_SOON', 'BEST_MATCH']);
   expect(computeBadges(listing(), context(), 'control')).toEqual(['FEATURED', 'ALMOST_FULL', 'STARTING_SOON']);
-  const fresh = listing({ createdAt: new Date('2026-11-19T00:00:00Z'), seatsAvailable: 8, startDate: '2027-04-01' });
+  const fresh = listing({ createdAt: '2026-11-19T00:00:00.000Z', seatsAvailable: 8, startDate: '2027-04-01' }, new Set());
   expect(computeBadges(fresh, context({ featuredIds: new Set() }), 'control')).toEqual(['NEW']);
 });
 
@@ -61,6 +63,14 @@ test('A/B assignment is deterministic and roughly balanced', () => {
   const treated = Array.from({ length: 2000 }, (_, i) => assignVariant(`user-${i}`).variant === 'treatment').filter(Boolean).length;
   expect(treated).toBeGreaterThan(900);
   expect(treated).toBeLessThan(1100);
+});
+
+test('score() equals the score reported by rank() for every variant', () => {
+  for (const variant of ['control', 'treatment'] as const) {
+    const strategy = rankingStrategyFor(variant);
+    const j = listing({ monthlyAmount: 120000, durationMonths: 10, seatsAvailable: 5 });
+    expect(strategy.score(j, context())).toBe(strategy.rank(j, context()).score);
+  }
 });
 
 test('payout month advances one month per seat across year boundaries', () => {

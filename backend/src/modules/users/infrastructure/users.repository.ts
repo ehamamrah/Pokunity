@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { Database } from '../../../shared/database/database.service';
-import { SqlExecutor } from '../../../shared/database/sql-executor';
+import { namedSql, SqlExecutor } from '../../../shared/database/sql-executor';
 import { RiskTier, UserCredentials, UserProfile } from '../domain/user.types';
 
 interface UserRow {
@@ -28,6 +28,8 @@ const SELECT_USER = `
          COALESCE(b.confirmed_monthly_total, 0) AS confirmed_monthly_total
   FROM users u LEFT JOIN user_behavior b ON b.user_id = u.id`;
 
+const USER_BY_ID = namedSql('users_by_id', `${SELECT_USER} WHERE u.id = $1`);
+
 const BUMP_EXPIRED_SQL = `
   INSERT INTO user_behavior (user_id, expired_holds_count)
   SELECT id, n FROM unnest($1::uuid[], $2::int[]) AS t(id, n)
@@ -53,7 +55,7 @@ export class UsersRepository {
   }
 
   async findById(id: string): Promise<UserRecord | null> {
-    const { rows } = await this.db.query<UserRow>(`${SELECT_USER} WHERE u.id = $1`, [id]);
+    const { rows } = await this.db.query<UserRow>(USER_BY_ID, [id]);
     return rows[0] ? toRecord(rows[0]) : null;
   }
 

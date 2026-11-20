@@ -1,12 +1,13 @@
 import { JameyaListing, Ranking } from '../jameya';
 import { explain, SignalName } from './reasons';
 import { RankingContext, RankingStrategy, Signals } from './ranking-context';
-import { computeSignals } from './signals';
+import { amountMatch, computeSignals, durationMatch } from './signals';
 
 export type Weights = Record<SignalName, number>;
 
 const MAX_REASONS = 3;
 const NEUTRAL = 0.5; // value of a personal signal when the member has no preference/history
+const round2 = (v: number) => Math.round(v * 100) / 100;
 
 /**
  * Strategy pattern: one weighted linear model per experiment variant. Score is Σ wᵢ·sᵢ with
@@ -18,16 +19,25 @@ export class WeightedRankingStrategy implements RankingStrategy {
     private readonly weights: Weights,
   ) {}
 
+  /** Hot path: no allocations, base signals are precomputed on the listing. */
+  score(j: JameyaListing, ctx: RankingContext): number {
+    const w = this.weights;
+    const personal = w.amountMatch === 0 && w.durationMatch === 0 ? 0
+      : w.amountMatch * (amountMatch(j.monthlyAmount, ctx.typicalMonthlyAmount) ?? NEUTRAL)
+        + w.durationMatch * (durationMatch(j.durationMonths, ctx.preferredDurations) ?? NEUTRAL);
+    const b = j.base;
+    return round2(personal + w.scarcity * b.scarcity + w.startingSoon * b.startingSoon
+      + w.freshness * b.freshness + w.featured * b.featured);
+  }
+
   rank(jameya: JameyaListing, context: RankingContext): Ranking {
     const signals = computeSignals(jameya, context);
-    const contributions = this.contributions(signals);
-    const score = contributions.reduce((sum, c) => sum + c.value, 0);
-    const reasons = contributions
+    const reasons = this.contributions(signals)
       .sort((a, b) => b.value - a.value)
       .map((c) => explain(c.name, signals, jameya, context))
       .filter((r): r is string => r !== null)
       .slice(0, MAX_REASONS);
-    return { score: Math.round(score * 100) / 100, reasons };
+    return { score: this.score(jameya, context), reasons };
   }
 
   private contributions(signals: Signals): { name: SignalName; value: number }[] {

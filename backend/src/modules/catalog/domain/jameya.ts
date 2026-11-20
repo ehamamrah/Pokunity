@@ -1,8 +1,8 @@
 export type Badge = 'FEATURED' | 'ALMOST_FULL' | 'STARTING_SOON' | 'NEW' | 'BEST_MATCH';
 export type SeatStatus = 'AVAILABLE' | 'HELD' | 'TAKEN';
 
-/** Snapshot row used by the marketplace (availability may be up to 5 s stale). */
-export interface JameyaListing {
+/** Raw listing row (JSON-safe: it is cached in Redis). */
+export interface JameyaRow {
   id: string;
   name: string;
   monthlyAmount: number;
@@ -12,7 +12,26 @@ export interface JameyaListing {
   minFee: number;
   maxFee: number;
   startDate: string;
-  createdAt: Date;
+  /** ISO timestamp. */
+  createdAt: string;
+}
+
+/**
+ * Non-personal ranking inputs, precomputed once per snapshot (not per request): the hot path only
+ * adds the two personal signals.
+ */
+export interface BaseSignals {
+  scarcity: number;
+  startingSoon: number;
+  freshness: number;
+  featured: number;
+  daysToStart: number;
+  ageDays: number;
+}
+
+/** Snapshot row used by the marketplace (availability may be up to 5 s stale). */
+export interface JameyaListing extends JameyaRow {
+  base: BaseSignals;
 }
 
 export interface Ranking {
@@ -54,8 +73,8 @@ export function daysUntil(isoDate: string, now: Date): number {
   return Math.round((Date.parse(`${isoDate}T00:00:00Z`) - today) / DAY_MS);
 }
 
-export function daysSince(date: Date, now: Date): number {
-  return Math.floor((now.getTime() - date.getTime()) / DAY_MS);
+export function daysSince(isoTimestamp: string, now: Date): number {
+  return Math.floor((now.getTime() - Date.parse(isoTimestamp)) / DAY_MS);
 }
 
 /** 'YYYY-MM' of the month in which `seatNumber` receives the payout. */

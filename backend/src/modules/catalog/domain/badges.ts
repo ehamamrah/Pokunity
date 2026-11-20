@@ -1,5 +1,5 @@
 import { Variant } from '../../analytics/domain/experiments';
-import { Badge, daysSince, daysUntil, JameyaListing } from './jameya';
+import { Badge, JameyaListing } from './jameya';
 import { RankingContext } from './ranking/ranking-context';
 import { amountMatch, durationMatch } from './ranking/signals';
 
@@ -21,12 +21,12 @@ function isBestMatch(j: JameyaListing, ctx: RankingContext, variant: Variant): b
 }
 
 export function computeBadges(j: JameyaListing, ctx: RankingContext, variant: Variant): Badge[] {
-  const days = daysUntil(j.startDate, ctx.now);
+  const days = j.base.daysToStart;
   const rules: [Badge, boolean][] = [
     ['FEATURED', ctx.featuredIds.has(j.id)],
     ['ALMOST_FULL', isAlmostFull(j)],
     ['STARTING_SOON', days >= 0 && days <= STARTING_SOON_DAYS],
-    ['NEW', daysSince(j.createdAt, ctx.now) <= NEW_DAYS],
+    ['NEW', j.base.ageDays <= NEW_DAYS],
     ['BEST_MATCH', isBestMatch(j, ctx, variant)],
   ];
   return rules.filter(([, applies]) => applies).map(([badge]) => badge);

@@ -20,5 +20,5 @@ export const SORT_STRATEGIES: Record<SortKey, Comparator> = {
   seats_left: then((a, b) => a.jameya.seatsAvailable - b.jameya.seatsAvailable),
   monthly_asc: then((a, b) => a.jameya.monthlyAmount - b.jameya.monthlyAmount),
   monthly_desc: then((a, b) => b.jameya.monthlyAmount - a.jameya.monthlyAmount),
-  newest: then((a, b) => b.jameya.createdAt.getTime() - a.jameya.createdAt.getTime()),
+  newest: then((a, b) => b.jameya.createdAt.localeCompare(a.jameya.createdAt)), // ISO-8601 sorts lexically
 };

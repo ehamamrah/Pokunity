@@ -6,10 +6,21 @@ import { QueryResult, QueryResultRow } from 'pg';
  */
 export interface SqlExecutor {
   query<R extends QueryResultRow = QueryResultRow>(
-    text: string,
+    text: string | NamedSql,
     values?: unknown[],
   ): Promise<QueryResult<R>>;
 }
+
+/**
+ * A named (server-side prepared) statement: parsed and planned once per connection, then only
+ * bound and executed. Used for the hottest statements on the read and booking paths.
+ */
+export interface NamedSql {
+  name: string;
+  text: string;
+}
+
+export const namedSql = (name: string, text: string): NamedSql => ({ name, text });
 
 /** PostgreSQL SQLSTATE codes we react to explicitly. */
 export const PgErrorCode = {

@@ -1,11 +1,11 @@
-import { daysUntil, JameyaListing } from '../jameya';
+import { JameyaListing } from '../jameya';
 import { RankingContext, Signals } from './ranking-context';
 
 export type SignalName = keyof Signals;
 
 /** Turns a strong signal into a human-readable explanation, or null if not worth showing. */
-export function explain(name: SignalName, s: Signals, j: JameyaListing, ctx: RankingContext): string | null {
-  const days = daysUntil(j.startDate, ctx.now);
+export function explain(name: SignalName, s: Signals, j: JameyaListing, _ctx: RankingContext): string | null {
+  const days = j.base.daysToStart;
   const reasons: Record<SignalName, () => string | null> = {
     amountMatch: () => ((s.amountMatch ?? 0) >= 0.85 ? 'Matches your usual monthly amount' : null),
     durationMatch: () => (s.durationMatch === 1 ? `Matches your preferred ${j.durationMonths}-month duration` : null),

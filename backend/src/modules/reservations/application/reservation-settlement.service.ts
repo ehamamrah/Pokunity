@@ -53,7 +53,10 @@ export class ReservationSettlementService implements ReservationSettlement, OnMo
     if (!(await this.catalog.markSeatTaken(tx, record.id))) throw new SeatInvariantViolation(`seat of ${record.id} not held`);
     await this.users.recordConfirmedReservation(tx, record.userId, record.monthlyAmount);
     await this.record(tx, record, 'reservation.confirmed');
-    const afterCommit = () => this.analytics.trackServerEvent(record.userId, 'reservation_confirmed', record.jameyaId);
+    const afterCommit = async () => {
+      await this.catalog.onSeatsChanged([{ jameyaId: record.jameyaId, delta: 0 }]);
+      await this.analytics.trackServerEvent(record.userId, 'reservation_confirmed', record.jameyaId);
+    };
     return { record, afterCommit };
   }
 

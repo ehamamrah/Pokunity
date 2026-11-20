@@ -3,15 +3,17 @@ import { Response } from 'express';
 import { Database } from '../../shared/database/database.service';
 import { Public } from '../../shared/http/public.decorator';
 import { RedisService } from '../../shared/redis/redis.service';
+import { BreakerRegistry } from '../../shared/resilience/breaker-registry';
 import { UsersFacade } from '../users/users.facade';
 
-/** Liveness + dependency health. KYC degradation (breaker open) never makes the service unhealthy. */
+/** Liveness + dependency health. Breaker degradation (KYC, payment gateway, Redis) never fails the probe. */
 @Controller('health')
 export class HealthController {
   constructor(
     private readonly db: Database,
     private readonly redis: RedisService,
     private readonly users: UsersFacade,
+    private readonly breakers: BreakerRegistry,
   ) {}
 
   @Public()
@@ -22,6 +24,7 @@ export class HealthController {
     const healthy = db && redis;
     res.status(healthy ? 200 : 503);
     const checks = { database: db ? 'up' : 'down', redis: redis ? 'up' : 'down', kyc: this.users.kycHealth() };
-    return { status: healthy ? 'ok' : 'error', checks, time: new Date().toISOString() };
+    // `breakers` is an additive field (contract-compatible): CLOSED | OPEN | HALF_OPEN per dependency.
+    return { status: healthy ? 'ok' : 'error', checks, breakers: this.breakers.states(), time: new Date().toISOString() };
   }
 }

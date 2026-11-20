@@ -22,7 +22,7 @@ export class KycCache {
   ) {}
 
   async get(userId: string): Promise<CachedKyc | null> {
-    const raw = await this.redis.client.get(`kyc:${userId}`).catch(() => null);
+    const raw = await this.redis.guard((r) => r.get(`kyc:${userId}`), () => null);
     return raw ? (JSON.parse(raw) as CachedKyc) : null;
   }
 
@@ -33,15 +33,15 @@ export class KycCache {
 
   async put(userId: string, entry: CachedKyc): Promise<void> {
     const ttl = this.config.env.KYC_STALE_TTL_SECONDS;
-    await this.redis.client.set(`kyc:${userId}`, JSON.stringify(entry), 'EX', ttl).catch(() => null);
+    await this.redis.guard((r) => r.set(`kyc:${userId}`, JSON.stringify(entry), 'EX', ttl), () => null);
   }
 
   async markUnavailable(userId: string): Promise<void> {
     const ttl = this.config.env.KYC_NEGATIVE_TTL_SECONDS;
-    await this.redis.client.set(`kyc:neg:${userId}`, '1', 'EX', ttl).catch(() => null);
+    await this.redis.guard((r) => r.set(`kyc:neg:${userId}`, '1', 'EX', ttl), () => null);
   }
 
   async isMarkedUnavailable(userId: string): Promise<boolean> {
-    return (await this.redis.client.exists(`kyc:neg:${userId}`).catch(() => 0)) === 1;
+    return (await this.redis.guard((r) => r.exists(`kyc:neg:${userId}`), () => 0)) === 1;
   }
 }

@@ -1,6 +1,7 @@
 import { INestApplication } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
 import { NestExpressApplication } from '@nestjs/platform-express';
+import compression from 'compression';
 import helmet from 'helmet';
 import { AppModule } from './app.module';
 import { AppConfig } from './shared/config/app-config';
@@ -22,7 +23,8 @@ export async function createApp(): Promise<INestApplication> {
 function configureHttp(app: NestExpressApplication, config: AppConfig): void {
   app.set('trust proxy', config.env.TRUST_PROXY);
   app.use(helmet());
-  app.enableCors({ origin: config.corsOrigins, exposedHeaders: ['X-Request-Id', 'Retry-After', 'Idempotent-Replayed'] });
+  app.use(compression({ threshold: 1024 })); // gzip / brotli (Accept-Encoding negotiated)
+  app.enableCors({ origin: config.corsOrigins, exposedHeaders: ['X-Request-Id', 'Retry-After', 'Idempotent-Replayed', 'ETag', 'RateLimit-Limit', 'RateLimit-Remaining', 'RateLimit-Reset'] });
   app.setGlobalPrefix('api/v1');
   app.useGlobalPipes(createValidationPipe());
   app.useGlobalFilters(new HttpExceptionFilter());

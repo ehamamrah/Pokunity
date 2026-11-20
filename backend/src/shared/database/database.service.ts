@@ -1,7 +1,7 @@
 import { Injectable, OnModuleDestroy } from '@nestjs/common';
 import { Pool, QueryResultRow, types } from 'pg';
 import { AppConfig } from '../config/app-config';
-import { SqlExecutor } from './sql-executor';
+import { NamedSql, SqlExecutor } from './sql-executor';
 
 // BIGINT money columns and counts fit safely in JS numbers (minor units); DATE stays a string.
 types.setTypeParser(types.builtins.INT8, (v) => Number.parseInt(v, 10));
@@ -17,11 +17,17 @@ export class Database implements SqlExecutor, OnModuleDestroy {
       connectionString: config.env.DATABASE_URL,
       max: config.env.DB_POOL_MAX,
       application_name: 'pokunity-backend',
+      // Guard rails: no runaway statement, no transaction left open by a stuck request,
+      // and fail fast (instead of queueing forever) when the pool is exhausted.
+      statement_timeout: config.env.DB_STATEMENT_TIMEOUT_MS,
+      idle_in_transaction_session_timeout: config.env.DB_STATEMENT_TIMEOUT_MS * 2,
+      connectionTimeoutMillis: config.env.DB_CONNECT_TIMEOUT_MS,
+      idleTimeoutMillis: 30_000,
     });
   }
 
-  query<R extends QueryResultRow = QueryResultRow>(text: string, values?: unknown[]) {
-    return this.pool.query<R>(text, values);
+  query<R extends QueryResultRow = QueryResultRow>(text: string | NamedSql, values?: unknown[]) {
+    return this.pool.query<R>(text as string, values);
   }
 
   /** Runs `work` in a single READ COMMITTED transaction; rolls back on any error. */

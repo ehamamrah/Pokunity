@@ -1,4 +1,6 @@
-import { Body, Controller, HttpCode, Post } from '@nestjs/common';
+import { Body, Controller, HttpCode, Post, UseGuards } from '@nestjs/common';
+import { RateLimits } from '../../../shared/http/rate-limit/policies';
+import { RateLimit, RateLimitGuard } from '../../../shared/http/rate-limit/rate-limit.guard';
 import { AuthenticatedUser, CurrentUser } from '../../../shared/http/current-user.decorator';
 import { AnalyticsFacade } from '../analytics.facade';
 import { IngestEventsDto } from './dto/ingest-events.dto';
@@ -9,8 +11,10 @@ export class EventsController {
 
   @Post()
   @HttpCode(202)
-  async ingest(@CurrentUser() user: AuthenticatedUser, @Body() body: IngestEventsDto) {
-    const accepted = await this.analytics.ingestClientEvents(user.id, body.events);
+  @UseGuards(RateLimitGuard)
+  @RateLimit(RateLimits.events)
+  ingest(@CurrentUser() user: AuthenticatedUser, @Body() body: IngestEventsDto) {
+    const accepted = this.analytics.ingestClientEvents(user.id, body.events);
     return { accepted };
   }
 }

@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common';
+import { BreakerRegistry } from '../../shared/resilience/breaker-registry';
 import { AuditModule } from '../audit/audit.module';
 import { PaymentsWebhookController } from './api/payments-webhook.controller';
 import { WebhookSignatureGuard } from './api/webhook-signature.guard';
@@ -10,6 +11,7 @@ import { LedgerRepository } from './infrastructure/ledger.repository';
 import { OutboxRepository } from './infrastructure/outbox.repository';
 import { PaymentEventsRepository } from './infrastructure/payment-events.repository';
 import { PaymentsRepository } from './infrastructure/payments.repository';
+import { ResilientPaymentGateway } from './infrastructure/resilient-payment-gateway';
 import { PaymentSimulatorAdapter } from './infrastructure/simulator/payment-simulator.adapter';
 import { SimulatorRepository } from './infrastructure/simulator/simulator.repository';
 import { WebhookDispatcher } from './infrastructure/simulator/webhook-dispatcher';
@@ -25,7 +27,13 @@ import { SettlementRegistry } from './settlement.port';
     PaymentsFacade, SettlementRegistry, WebhookService, PaymentOutcomeService, OutboxProcessorJob,
     ReconciliationJob, WebhookSignatureGuard, PaymentsRepository, PaymentEventsRepository,
     LedgerRepository, OutboxRepository, SimulatorRepository, WebhookDispatcher,
-    { provide: PaymentGateway, useClass: PaymentSimulatorAdapter },
+    PaymentSimulatorAdapter,
+    {
+      provide: PaymentGateway,
+      inject: [PaymentSimulatorAdapter, BreakerRegistry],
+      useFactory: (adapter: PaymentSimulatorAdapter, breakers: BreakerRegistry) =>
+        new ResilientPaymentGateway(adapter, breakers.get('paymentGateway', { failureThreshold: 5, openDurationMs: 10_000 })),
+    },
   ],
   exports: [PaymentsFacade, OutboxProcessorJob, ReconciliationJob],
 })

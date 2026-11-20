@@ -2,7 +2,8 @@ import { Body, Controller, Delete, Get, Param, ParseUUIDPipe, Post, Query, Res, 
 import { Response } from 'express';
 import { Errors } from '../../../shared/errors/app-error';
 import { AuthenticatedUser, CurrentUser } from '../../../shared/http/current-user.decorator';
-import { RateLimit, RateLimitGuard } from '../../../shared/http/rate-limit.guard';
+import { RateLimits } from '../../../shared/http/rate-limit/policies';
+import { RateLimit, RateLimitGuard } from '../../../shared/http/rate-limit/rate-limit.guard';
 import { IdempotencyInterceptor } from '../../idempotency/idempotency.interceptor';
 import { CancelReservationUseCase } from '../application/cancel-reservation.use-case';
 import { CheckoutUseCase } from '../application/checkout.use-case';
@@ -14,6 +15,7 @@ import { CheckoutDto, CreateReservationDto, ListReservationsQuery } from './dto/
 const uuid = new ParseUUIDPipe({ version: '4', exceptionFactory: () => Errors.notFound('Reservation') });
 
 @Controller('reservations')
+@UseGuards(RateLimitGuard)
 export class ReservationsController {
   constructor(
     private readonly create: CreateReservationUseCase,
@@ -23,24 +25,26 @@ export class ReservationsController {
   ) {}
 
   @Post()
-  @UseGuards(RateLimitGuard)
-  @RateLimit({ name: 'reservation-create', limit: 5, windowSeconds: 10, by: 'user' })
+  @RateLimit(RateLimits.reservationCreate)
   @UseInterceptors(IdempotencyInterceptor)
   reserve(@CurrentUser() user: AuthenticatedUser, @Body() body: CreateReservationDto) {
     return this.create.execute({ userId: user.id, jameyaId: body.jameyaId, seatNumber: body.seatNumber });
   }
 
   @Get()
+  @RateLimit(RateLimits.reservationList)
   list(@CurrentUser() user: AuthenticatedUser, @Query() query: ListReservationsQuery) {
     return this.queries.list(user.id, query.status ?? null).then((data) => ({ data }));
   }
 
   @Get(':id')
+  @RateLimit(RateLimits.reservationPoll)
   get(@CurrentUser() user: AuthenticatedUser, @Param('id', uuid) id: string) {
     return this.queries.get(user.id, id);
   }
 
   @Post(':id/checkout')
+  @RateLimit(RateLimits.reservationCheckout)
   @UseInterceptors(IdempotencyInterceptor)
   async checkout(
     @CurrentUser() user: AuthenticatedUser,
@@ -54,6 +58,7 @@ export class ReservationsController {
   }
 
   @Delete(':id')
+  @RateLimit(RateLimits.reservationCancel)
   release(@CurrentUser() user: AuthenticatedUser, @Param('id', uuid) id: string) {
     return this.cancel.execute(user.id, id);
   }

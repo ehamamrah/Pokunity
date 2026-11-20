@@ -1,10 +1,10 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
 import { SqlExecutor } from '../../shared/database/sql-executor';
-import { withTimeout } from '../../shared/utils/timeout';
 import { PaymentSummary } from './domain/payment.types';
+import { OutboxProcessorJob } from './application/outbox-processor.job';
+import { OutboxRepository } from './infrastructure/outbox.repository';
 import { PaymentsRepository } from './infrastructure/payments.repository';
-import { PaymentGateway } from './payment-gateway.port';
 import { ReservationSettlement, SettlementRegistry } from './settlement.port';
 
 export type { PaymentSummary } from './domain/payment.types';
@@ -17,16 +17,13 @@ export interface AuthorizationRequest {
   token: string;
 }
 
-const PROVIDER_CALL_TIMEOUT_MS = 5000;
-
 /** Public API (Facade) of the payments module. */
 @Injectable()
 export class PaymentsFacade {
-  private readonly logger = new Logger(PaymentsFacade.name);
-
   constructor(
     private readonly payments: PaymentsRepository,
-    private readonly gateway: PaymentGateway,
+    private readonly outbox: OutboxRepository,
+    private readonly relay: OutboxProcessorJob,
     private readonly registry: SettlementRegistry,
   ) {}
 
@@ -34,24 +31,19 @@ export class PaymentsFacade {
     this.registry.register(settlement);
   }
 
-  /** Step 1 (inside the checkout transaction): create the AUTHORIZING payment row. */
+  /**
+   * Step 1 (inside the checkout transaction): create the AUTHORIZING payment row AND its AUTHORIZE
+   * outbox command. Both commit with the PAYMENT_PENDING transition, so no crash can lose the request.
+   */
   async open(tx: SqlExecutor, request: AuthorizationRequest): Promise<PaymentSummary> {
     const { id, status, amount, currency } = await this.payments.insert(tx, { id: randomUUID(), ...request });
+    await this.outbox.enqueueAuthorize(tx, id);
     return { id, status, amount, currency };
   }
 
-  /**
-   * Step 2 (after commit): ask the provider to authorize. Failures are tolerated: the payment stays
-   * AUTHORIZING and reconciliation looks the intent up by our reference (the payment id).
-   */
-  async requestAuthorization(paymentId: string, request: AuthorizationRequest): Promise<void> {
-    const call = this.gateway.authorize({ reference: paymentId, amount: request.amount, currency: 'SAR', token: request.token });
-    try {
-      const { intentId } = await withTimeout(call, PROVIDER_CALL_TIMEOUT_MS);
-      await this.payments.setIntent(paymentId, intentId);
-    } catch (error) {
-      this.logger.error({ msg: 'authorize call failed; reconciliation will resolve', paymentId, error: String(error) });
-    }
+  /** Step 2 (after commit): wake the outbox relay so authorization starts immediately (async). */
+  requestAuthorization(): void {
+    this.relay.kick();
   }
 
   summariesFor(reservationIds: string[]): Promise<Map<string, PaymentSummary>> {

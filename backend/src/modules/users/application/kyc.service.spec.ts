@@ -1,4 +1,5 @@
 import { AppConfig } from '../../../shared/config/app-config';
+import { BreakerRegistry } from '../../../shared/resilience/breaker-registry';
 import { Env } from '../../../shared/config/env.schema';
 import { FixedClock } from '../../../shared/clock/clock';
 import { ProviderKycStatus } from '../domain/user.types';
@@ -22,7 +23,7 @@ function setup(fetchStatus: () => Promise<ProviderKycStatus>) {
   const clock = new FixedClock(new Date('2026-11-21T10:00:00.000Z'));
   const cache = new MemoryCache();
   const provider = { fetchStatus: jest.fn(fetchStatus) } as unknown as KycProvider & { fetchStatus: jest.Mock };
-  const service = new KycService(provider, cache as unknown as KycCache, clock, new AppConfig(env));
+  const service = new KycService(provider, cache as unknown as KycCache, clock, new AppConfig(env), new BreakerRegistry());
   return { service, cache, provider, clock };
 }
 
@@ -56,6 +57,15 @@ test('concurrent lookups for one member share a single provider call', async () 
   const { service, provider } = setup(async () => 'VERIFIED');
   await Promise.all([service.getStatus('u1'), service.getStatus('u1'), service.getStatus('u1')]);
   expect(provider.fetchStatus).toHaveBeenCalledTimes(1);
+});
+
+test('read pages get a stale status immediately while it refreshes in the background', async () => {
+  const { service, cache, provider } = setup(async () => 'REJECTED');
+  await cache.put('u1', { status: 'VERIFIED', checkedAt: '2026-11-21T09:00:00.000Z' });
+  await expect(service.getStatus('u1', { allowStale: true })).resolves.toMatchObject({ status: 'VERIFIED', stale: true });
+  await new Promise((resolve) => setImmediate(resolve));
+  expect(provider.fetchStatus).toHaveBeenCalledTimes(1);
+  await expect(service.getStatus('u1')).resolves.toMatchObject({ status: 'REJECTED', stale: false });
 });
 
 test('provider health degrades once the breaker opens', async () => {
