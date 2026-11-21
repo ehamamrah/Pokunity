@@ -31,7 +31,8 @@ Baseline = commit `67b4d08` (harness only), fresh stack. After = `0319ce0`.
 | `GET /jameyas/featured` | 1,941 → 1,840 | 26 → 26 | 47 → 51 | ≈ flat |
 | `GET /reservations` | 2,266 → 2,025 | 23 → 24 | 34 → 44 | −11% |
 
-**Reading the table honestly**
+### Reading the table honestly
+
 - The big win is the personalised list: it used to aggregate seats and score all 5,000
   Jameyas per request; now aggregates are precomputed and ranked lists are memoised.
 - Endpoints that were already cheap are flat or slightly slower: every request now passes
@@ -58,7 +59,7 @@ version). New and conditional scenarios:
 
 Details, bytes saved and the 304 rate: [caching.md](caching.md).
 
-**Contention (1,000 concurrent members, one 20-seat Jameya), after the pass**
+### Contention (1,000 concurrent members, one 20-seat Jameya), after the pass
 
 | Mode | Outcome | Wall time | p99 | Double bookings |
 |---|---|---|---|---|

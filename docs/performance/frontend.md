@@ -67,7 +67,7 @@ Resilience measurements:
 | 1 | Two extra detail-page requests on the marketplace, one per visible card | Next's automatic `<Link>` prefetch fetches the RSC payload of each visible link (N+1-style) | `prefetch={false}` on data-bearing links; explicit warm-up on hover or focus, deduplicated by the query cache | `ed265fa`, `4d3ab39` |
 | 2 | Waterfall: three API calls started only after the JS bundle loaded | Data was fetched on mount in the client | Server component prefetches `me`, featured and the first list page in parallel; HTML is hydrated with the data | `ed265fa` |
 | 3 | `GET /favicon.ico` returned 404 | No icon | `app/icon.svg` | `4d3ab39` |
-| 4 | API responses were not compressed | Route handlers do not gzip; the BFF relayed decoded bodies | ~~Streaming gzip in the BFF~~ **reverted**: Next.js strips `Content-Encoding` from route-handler responses, so browsers received gzip bytes labelled as JSON and every client-side call failed to parse. Compression belongs to the reverse proxy / CDN in front of Next (nginx, ALB, CloudFront). A regression test (`proxy-encoding.test.ts`) asserts the BFF never encodes bodies. | `e0aa4db`, reverted in the fix commit |
+| 4 | API responses were not compressed | Route handlers do not gzip; the BFF relayed decoded bodies | ~~Streaming gzip in the BFF~~ **reverted**: Next.js strips `Content-Encoding` from route-handler responses, so browsers received gzip bytes labelled as JSON and every client-side call failed to parse. Compression belongs to the reverse proxy / CDN in front of Next (nginx, ALB, CloudFront). A regression test (`proxy-encoding.test.ts`) asserts the BFF never encodes bodies. | `e0aa4db`, reverted in `b57077d` |
 | 5 | MSW (about 290 kB) and fixtures were emitted into the production client bundle | An unset `NEXT_PUBLIC_*` stays a runtime lookup; the dev branch survived | Build-time env literals, `IgnorePlugin` on `src/mocks` when mocking is off, and `npm run check:bundle` to fail a build that leaks | `467dae5` |
 | 6 | Filter changes flashed an empty list | Query key change cleared data | `keepPreviousData` on the list | `ed265fa` |
 | 7 | One request per keystroke in search | Search applied on every change | 300 ms debounce; an applied-search ref prevents overwriting newer typing | `5088978` |
@@ -137,9 +137,8 @@ is acceptable at this scale and is noted as a limit.
   layout and paint for offscreen cards. Virtualize if a session routinely passes about 200 cards.
 - **No `next/font`.** The app uses the system font stack. That means no font download and no font-swap
   layout shift, at the cost of exact typography across platforms.
-- **ETag 304 rarely hits.** Conditional GET works end to end, but the backend's ETags include
-  time-varying fields. Stable-content ETags on `GET /jameyas` and `GET /me` would make 304 common.
-  Recorded as a backend request in `docs/api/change-requests.md`.
+- **~~ETag 304 rarely hits.~~ Resolved in contract v1.1.** ETags are now computed from content without
+  volatile timestamps, and freshness travels in `X-As-Of`; see [caching.md](caching.md).
 - **CLS of 0.032 on `/`.** The "Recommended for you" section moves slightly as the marketplace view mounts
   after hydration. Under the 0.1 threshold. A fixed-height placeholder would remove it.
 - **Checkout polling pauses while the tab is hidden.** The payment result is authoritative, so the page
@@ -155,7 +154,7 @@ is acceptable at this scale and is noted as a limit.
 
 v1.1 changes what the frontend can rely on, and this section records what changed and how it was
 verified. The full caching design is in
-[caching-frontend-section.md](caching-frontend-section.md).
+[caching.md § Frontend](caching.md#frontend).
 
 | Change | Effect on the browser | How it is verified |
 |---|---|---|

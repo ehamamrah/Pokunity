@@ -42,7 +42,7 @@ header. Together they change what "stale" means on screen:
 So the "updated Xs ago" line is accurate in both cases, and an unchanged marketplace costs one small
 revalidation round trip, not a full download. The booking path is unchanged: holds and checkout always
 read the database, and the seat-conflict rules in section 3 still apply to a stale seat map. Details:
-[performance/caching-frontend-section.md](../performance/caching-frontend-section.md).
+[performance/caching.md § Frontend](../performance/caching.md#frontend).
 
 ## 2. Why the seat map is still safe to act on
 
