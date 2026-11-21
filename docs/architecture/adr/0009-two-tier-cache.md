@@ -22,7 +22,7 @@ concurrent request trigger its own rebuild (cache stampede). The personalised li
 
 ## Consequences
 
-- Personalised list: ~106 → ~1,650 req/s, p99 884 ms → 67 ms ([benchmarks](../../performance/backend.md#2-results-same-laptop-docker-desktop-5000-jameyas--69k-seats)).
+- Personalised list: ~106 → ~1,650 req/s, p99 884 ms → 67 ms ([benchmarks](../../performance/backend.md#results)).
 - Worst-case staleness = L1 + L2 ≈ 4 s, inside the 5 s budget.
 - More moving parts (lock, jitter, breaker); covered by unit tests of the cache.
 

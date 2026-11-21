@@ -1,58 +1,65 @@
-# Edge Cases
+# Frontend Edge Cases
 
-Each row names the failure, what the user sees, and where the behavior lives. Tests are noted
-where they exist.
+What the member sees when something goes wrong. Backend cases: [reservation edge cases](../reservation/edge-cases.md).
 
-| # | Edge case | UX handling | Where in code | Verified by |
-|---|---|---|---|---|
-| 1 | **Double click on "Hold seat"** | Button disables while the mutation is pending. A second click within the same intent reuses the same `Idempotency-Key`, so the backend returns the stored response instead of a second hold. | `ReservePanel` (`disabled={reserving}`), `useReserveSeat`, `shared/lib/idempotency.ts` | `reserve-flow.test.tsx` (key reuse) |
-| 2 | **Double click on "Pay"** | Pay disables while `paying`, and the checkout key is per (reservation, token). | `CheckoutActions`, `payActionFor` | Machine test (`PAY_REQUESTED` only from `held`) |
-| 3 | **Network drop during a write** | Automatic retry (2 attempts, backoff, capped at 4 s) with the same key, so the server applies the intent at most once. The optimistic state stays visible during retries. If retries are exhausted, the key is kept, so the user can retry the same intent safely. | `shared/api-client/retry.ts`, `useReserveSeat`, `useStartCheckout` | `client.test.ts` (retry policy), `shouldRetryWrite` |
-| 4 | **Network drop during a read** | TanStack retries transport loss and 5xx twice. Data already on screen remains visible. | `shared/query/query-client.ts` (`shouldRetryRead`) | Unit-level policy |
-| 5 | **409 `SEAT_UNAVAILABLE`** | Optimistic "Holding…" rolls back to the snapshot. The seat map is re-read. The message names the seat and suggests the nearest open seats. The "Refresh and choose again" action is shown. | `failReserve`, `presentError`, `nearestAvailableSeats`, `ErrorNotice` | `reserve-flow.test.tsx` (rollback on 409) |
-| 6 | **409 `JAMEYA_FULL`** | Explains the Jameya is full, and shows `GET /jameyas/{id}/similar` inline in the reserve panel (v1.1). An empty answer gets an explicit empty state. | `describeReservationError` (`showSimilar`), `ErrorBlock`, `SimilarJameyas` | `similar-flow.test.tsx` |
-| 7 | **409 `ACTIVE_RESERVATION_EXISTS`** | Links to the existing hold (`details.reservationId`), and the seat map shows "View your current hold". | `error-strategy.ts`, `ReservePanel` | `error-strategy.test.ts` |
-| 8 | **409 `INVALID_STATE` on checkout** (e.g. paid in another tab) | The machine returns to `held`, the reservation is re-read, and the status sync moves the view to the true state. Nothing is shown as success unless the server says `CONFIRMED`. | `checkoutReducer` (`PAY_REJECTED`), `useServerStatusSync`, `ErrorNotice` | Machine tests |
-| 9 | **Hold expires while the page is open** | The countdown reaches zero, the Pay button is disabled, and the user is told to choose the seat again. The server still decides: a late pay returns `410 RESERVATION_EXPIRED` and the machine moves to `expired`. | `HoldTimer` (`onEnded`), `markHoldEnded`, `checkoutReducer` | `checkout-machine.test.ts` |
-| 10 | **Hold expires on the server (sweeper) while HELD** | The reservation polls every 5 s, so the server's `EXPIRED` appears within seconds, and the view shows "Your hold expired" with a path back to the seat map. | `pollIntervalFor`, `OutcomeBanner` | `poll-policy.test.ts` |
-| 11 | **Tab hidden / visible** | Polling pauses while hidden on every resource. Returning to the tab refetches at once, so the authoritative status shows immediately. Page-hide flushes analytics. | `refetchIntervalInBackground`, `AnalyticsLifecycle`, `refetchOnWindowFocus` | Configuration; `analytics` flush tests |
-| 12 | **Page closed or navigated during `PAYMENT_PENDING`** | The server keeps authoritative state. On return, `/reservations` shows "Confirming payment", and the detail resolves when the server does. | Reservation list, `pollIntervalFor` | Server-authoritative by design |
-| 13 | **Slow payment (`tok_slow`, ~8 s)** | A "Confirming your payment" notice with a plain explanation. Polling runs at 1.5 s, then 3 s after 15 s. No success is implied. | `PayingNotice`, `pollIntervalFor` | `CheckoutSession.test.tsx` |
-| 14 | **Duplicate provider callbacks (`tok_duplicate`)** | No UI effect. The UI only reflects the reservation's state, which the backend confirms exactly once. | Server; UI reads `reservation.status` only | By design (no client-side state derived from events) |
-| 15 | **Provider never calls back (`tok_timeout`)** | Stays `PAYMENT_PENDING` until the reconciliation job resolves it (about 10 min). The UI keeps the "still confirming" message and polls at 3 s. It never shows a charge, and failure copy states that no charge was made. | `PayingNotice`, `FAILURE_COPY.PAYMENT_TIMEOUT` | Contract gap GAP-FE-004 |
-| 16 | **Payment declined (`tok_decline`)** | FAILED with `PAYMENT_DECLINED`: "Your card was not charged. The payment authorization was voided." The user can choose the seat again. | `FAILURE_COPY`, `OutcomeBanner` | `CheckoutSession.test.tsx` |
-| 17 | **Zero-fee seat** | Checkout returns `200` with `CONFIRMED`. The UI shows "Confirm seat (no fee)" and the picker is hidden. | `checkoutReducer` (`PAY_CONFIRMED_IMMEDIATELY`), `PaymentPanel` | Machine tests |
-| 18 | **Session expiry (401 `UNAUTHORIZED`)** | The BFF clears the cookie on a backend 401. The client redirects to `/login?reason=expired` with a notice. Caches are cleared on sign-in. | `proxy.ts` (`expiredSessionCookie`), `handleGlobalError`, `redirectToLogin` | `proxy.test.ts` (cookie attributes) |
-| 19 | **Rate limited (429 `RATE_LIMITED`)** | Retried after `Retry-After`. If still limited, the message gives the wait time and the button stays disabled while pending. | `writeRetryDelayMs`, `error-strategy` (`wait`) | `client.test.ts` (Retry-After), `error-strategy.test.ts` |
-| 20 | **KYC service down (`UNKNOWN`, `KYC_UNAVAILABLE`)** | The banner says browsing still works. Reserving reports "temporarily unavailable" with "Try again". The marketplace is never blocked. | `kycNoticeFor`, `KYC_UNAVAILABLE` strategy | `error-strategy.test.ts` |
-| 21 | **KYC pending or rejected (403 `KYC_REQUIRED`)** | Explains the verification step. Browsing stays available. Seats show "Verify your identity to reserve". | `kycNoticeFor`, `restrictionCopy` | `seat-presentation.test.ts` |
-| 22 | **Restricted seat (`RISK_TIER`)** | Greyed out, not focusable as a selectable option, with the reason as visible text. Screen readers hear the reason in the accessible name. | `describeSeat`, `SeatOption` | `SeatMap.test.tsx` |
-| 23 | **Seat map stale (other members hold seats)** | The seat map polls every 5 s and refetches on focus. A conflict is caught by the server (409) and the rollback rule above. | `useJameyaDetail`, `TIMING.seatMapRefetchMs` | Configuration |
-| 24 | **Idempotency key replayed with a different body (422)** | Cannot occur from this UI: the key is scoped to (jameya, seat) or (reservation, token). A changed input is a new intent and gets a new key. | `reserveScope`, `checkoutScope` | Scope tests |
-| 25 | **Backend unreachable (BFF returns 503 envelope)** | The error is normalized to `INTERNAL_ERROR`, with "No charge was made" stated for write paths. Reads show a retry message. | `proxy.ts` (catch), `error-strategy` | `error-strategy.test.ts` |
-| 26 | **Contract drift (2xx body does not match the schema)** | A `ContractError` is raised at the boundary, so the section error boundary shows a contained failure rather than corrupt data. | `shared/contract/schemas.ts`, `ErrorBoundary` | `client.test.ts` |
-| 27 | **Unknown or deleted Jameya / reservation (404)** | Shows the Next.js not-found page, with a link back to the marketplace. | `notFound()` in the detail and checkout containers | Route behavior |
-| 28 | **Malformed UUID in the URL** | Rejected before any request (`isUuid`), resulting in not-found. | `app/(app)/jameyas/[id]/page.tsx` | `uuid` helper |
-| 29 | **Open redirect via `?next=`** | Only same-origin relative paths are honored; protocol-relative and absolute URLs fall back to `/`. | `safeNextPath` | Unit-level policy |
-| 30 | **Filter range inverted (min > max)** | Apply is disabled, with an inline explanation. The URL is not changed. | `isAmountRangeValid`, `FilterBar` | `filters.test.ts` (policy) |
-| 31 | **Search under two characters** | Not sent to the API (the contract's minimum), so the request is not rejected. | `isSearchable`, `toListQuery` | `filters.test.ts` |
-| 32 | **Analytics backend failure** | Events are re-queued (bounded at 200), and the queue never blocks the UI. | `EventBatcher.requeue` | `event-batcher.test.ts` |
-| 33 | **Shared or bookmarked filter URL** | The filters are parsed from the URL, invalid values fall back to defaults, and the state is reproduced exactly. | `parseFilters`, `toSearchParams` | `filters.test.ts` (round-trip) |
-| 34 | **Browser back during checkout** | The reservation page is keyed by id, so going back and forward reloads the authoritative state rather than a stale local copy. | `CheckoutView` (`key`), reservation query | Structure |
-| 35 | **Backend unhealthy (circuit open)** | After five consecutive failures the BFF answers at once with 503 and `Retry-After`, without calling the backend. The UI keeps what it already shows and retries after the window. One probe then tests recovery. | `CircuitBreaker` (`circuit-breaker.ts`), `unavailableResponse` | `circuit-breaker.test.ts`; live: 6 to 8 ms 503s |
-| 36 | **Backend slow (no response within 10 s)** | The BFF returns 504 with the contract envelope. Writes report that no charge was made. Reads show a retry message. | `BACKEND_TIMEOUT_MS`, `unavailableResponse` | `backend-client.test.ts` |
-| 37 | **Burst of writes after a 429** | The client holds further writes locally for the server's `Retry-After`, so clicks do not turn into rejected requests. Reads are not held. | `RateGate` (`rate-gate.ts`), `assertWriteAllowed` | `rate-gate.test.ts` |
-| 38 | **Server prefetch fails (backend down during render)** | `prefetchQuery` never throws; the page renders without data and the client fetches after hydration, through the same breaker. | `prefetchMarketplace`, `serverApiClient` | Structure (prefetch is best effort) |
-| 39 | **Analytics send keeps failing** | After three consecutive failed sends the queue is dropped, so memory stays bounded during an outage. | `MAX_CONSECUTIVE_FAILURES`, `EventBatcher.onSendFailure` | `event-batcher.test.ts` |
-| 40 | **Search typed quickly** | One request per pause (300 ms). Characters typed after a request is sent are kept, not overwritten by the URL echo. | `useDebouncedSearch`, `useApplyHandler` | `filter-debounce.test.tsx` |
-| 41 | **Hover over many cards** | No requests while rendering. A card's detail is warmed once on its first hover, then served from cache for 5 s. | `prefetchJameya`, `JameyaCard` | `request-budget.test.tsx` |
-| 42 | **Session revoked on another device (401 with a token)** | The BFF clears the cookie. The client drops its cache and redirects to sign-in with `reason=expired` and `next` set to the page the member was on, so they return to it after signing in. | `proxy.ts` (`expiredSessionCookie`), `handleGlobalError`, `redirectToLogin` | e2e step 8 (revoked token → 401, cookie gone) |
-| 43 | **Log out of all devices** | Every token of the member is revoked. This device signs out through the same path as a normal logout, and the other device's next request gets 401 (edge 42). | `AccountMenu`, `useLogout`, `handleLogout` | `account-menu.test.tsx`; e2e step 9 |
-| 44 | **Logout while the backend is unreachable** | The cookie is cleared and the HTTP cache is cleared anyway. The revocation failure is logged on the server without the token. The member is signed out here; the token expires within its one-hour lifetime. | `revokeAtBackend` (best effort), `logRevocationFailure` | `session.test.ts` |
-| 45 | **Logging out with analytics queued** | The queue is dropped on sign-out, so no event from one session is sent under another. | `endSession`, `analytics.reset()` | `event-batcher.ts` (`clear`) |
-| 46 | **Revalidation returns 304 (content unchanged)** | The browser serves its stored body, and `X-As-Of` moves the freshness line forward. The page does not re-render. | `freshness.ts`, structural sharing | `freshness-source.test.ts`, `structural-sharing.test.ts`; e2e step 3 |
-| 47 | **Similar Jameyas list is empty** | An explicit empty state, not a blank panel: "Nothing similar is open right now." | `SimilarJameyas` (`SimilarEmpty`) | `similar-flow.test.tsx` |
-| 48 | **Deadline for a pending payment (`resolveBy`)** | "Still confirming… the result by HH:MM at the latest", in local time. Without a deadline the generic copy is shown. A malformed deadline never prints "Invalid Date". | `PayingNotice`, `resolveByLabel` | `paying-notice.test.tsx`, `resolve-by.test.ts` |
-| 49 | **Hold limit reached** | The message states the viewer's real limit, from the error or from `/me`, and links to My reservations. | `holdLimitText`, `blockingCopy` | `error-strategy.test.ts` |
-| 50 | **Backend slow (504 `UPSTREAM_TIMEOUT`) or unavailable (503 `SERVICE_UNAVAILABLE`)** | Named errors with the right copy and a retry. Writes retry with the same Idempotency-Key, as the contract specifies. | `error-strategy` (`SERVICE_UNAVAILABLE`, `UPSTREAM_TIMEOUT`), `isAutoRetryableWrite` | `error-strategy.test.ts`, `client.test.ts` |
-| 51 | **Long reservation history** | One page at a time (20), with the position and total. The page is in the URL, so it survives reloads and back navigation. | `ReservationList`, `Pager` | `reservation-pagination.test.tsx` |
+## Booking
+
+| Case | What the member sees |
+|---|---|
+| Double click on Hold or Pay | Button disables; a repeat reuses the same `Idempotency-Key`, so only one request takes effect |
+| Seat just taken (`SEAT_UNAVAILABLE`) | "Holding…" rolls back, the map refreshes, and the nearest free seats are suggested |
+| Jameya full (`JAMEYA_FULL`) | Similar Jameyas shown inline, or "Nothing similar is open right now" |
+| Already holding a seat here | Link to the existing hold |
+| Hold limit reached | The real limit, with a link to My reservations |
+| Restricted seat (risk, KYC) | Greyed out, the reason in text and in the screen-reader label |
+| KYC pending, rejected or unavailable | Banner explains; browsing always works |
+| Stale seat map | Refreshes every 5 s and on focus; the server catches conflicts with `409` |
+
+## Checkout
+
+| Case | What the member sees |
+|---|---|
+| Hold expires on screen | Countdown hits zero, Pay disables, "choose the seat again" |
+| Hold expired on the server | Seen within 5 s by polling; same message |
+| Paid in another tab (`INVALID_STATE`) | Reservation re-read; the real status is shown |
+| Slow payment (`tok_slow`) | "Confirming your payment… result by HH:MM at the latest" |
+| No callback (`tok_timeout`) | Keeps confirming until reconciliation settles it; never implies a charge |
+| Declined | "Your card was not charged." Seat can be chosen again |
+| Duplicate callbacks | No visible effect; the UI shows only the server's status |
+| Zero-fee seat | "Confirm seat (no fee)", no payment picker |
+| Page closed while paying | On return, the server's status is shown |
+| Back button during checkout | Reloads the live status, not a stale copy |
+
+## Network and backend
+
+| Case | What the member sees |
+|---|---|
+| Network drop on a write | Retried twice with the same key; still "Holding…" meanwhile |
+| Network drop on a read | Retried twice; data on screen stays |
+| Rate limited (`429`) | Waits for `Retry-After`; further writes are held locally until then |
+| Backend slow (`504`) or down (`503`) | Named error and Retry; writes say "No charge was made" |
+| Backend failing repeatedly | BFF circuit opens and answers `503` at once, then one probe tests recovery |
+| Server render can't prefetch | Page renders and fetches in the browser instead |
+| Response doesn't match the contract | Contained error in that section, never corrupt data |
+
+## Session
+
+| Case | What the member sees |
+|---|---|
+| Session expired or revoked elsewhere | Cookie cleared; sign-in page, then back to the same page |
+| Log out of all devices | This device signs out; other devices on their next request |
+| Logout while the backend is down | Signed out locally anyway; the failure is logged without the token |
+| Analytics queued at logout | Queue dropped, so no event crosses sessions |
+| `?next=` pointing off-site | Ignored; goes to `/` |
+
+## Marketplace
+
+| Case | What the member sees |
+|---|---|
+| Content unchanged (`304`) | No re-render; "updated Xs ago" still moves |
+| Fast typing in search | One request per 300 ms pause; under 2 characters is not sent |
+| Min amount above max | Apply disabled, with an explanation |
+| Shared or bookmarked filter URL | Same results; invalid values fall back to defaults |
+| Unknown id or malformed URL | Not-found page with a link back |
+| Long reservation history | 20 per page, page number in the URL |
+| Analytics endpoint failing | Events re-queued (max 200), dropped after 3 failures; UI never blocked |

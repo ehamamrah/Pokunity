@@ -1,180 +1,98 @@
-# Backend Performance & Resilience
+# Backend Performance and Resilience
 
-> Scope: the performance pass on the NestJS backend. Companion: [frontend.md](frontend.md).
-> Related decisions: [ADR-0004 outbox](../architecture/adr/0004-transactional-outbox.md),
-> [ADR-0008 marketplace snapshot](../architecture/adr/0008-in-memory-marketplace-snapshot.md)
-> (now extended to a two-tier cache, see §4).
+**Method:** benchmark, change, benchmark again with the same harness. Prove "no N+1" with tests that count queries. Re-run the 1,000-user test after every booking-path change.
 
-## 1. Method
-
-1. Benchmark first, then change, then benchmark again with the same harness.
-2. Prove "no N+1" with tests, not just review: a query-counting wrapper around the pg pool
-   asserts the number of queries per endpoint is **constant** as the data grows.
-3. Re-run the 1,000-user contention test after every change to the booking path.
-
-Harness: `autocannon`, 50 connections, 10 s per scenario, run inside the compose network
-(`docker compose -f docker-compose.yml -f backend/docker-compose.test.yml run --rm backend-bench`).
-Member tokens and client IPs are rotated so per-user/per-IP rate limits don't dominate.
-
-## 2. Results (same laptop, Docker Desktop, 5,000 Jameyas / ~69k seats)
-
-Baseline = commit `67b4d08` (harness only), fresh stack. After = `0319ce0`.
-
-| Scenario | req/s before → after | p50 ms | p99 ms | Change |
-|---|---|---|---|---|
-| `GET /jameyas` recommended, page 1 | **106 → 1,647** | 460 → 30 | 884 → 67 | **15.5× throughput** |
-| `GET /jameyas` recommended, page 5 | **103 → 1,635** | 427 → 28 | 3,833 → 56 | **15.9×**, p99 tail removed |
-| `GET /jameyas` filtered + sorted | 1,097 → 1,676 | 44 → 28 | 70 → 58 | +53% |
-| `GET /jameyas/:id` (seat map) | 1,406 → 1,994 | 32 → 26 | 96 → 58 | +42% |
-| `POST /events` (10 per batch) | 1,388 → 1,658 | 35 → 27 | 75 → 58 | +19%, 0 DB work on request |
-| `GET /me` | 1,971 → 2,223 | 27 → 24 | 45 → 44 | +13% |
-| `GET /jameyas/featured` | 1,941 → 1,840 | 26 → 26 | 47 → 51 | ≈ flat |
-| `GET /reservations` | 2,266 → 2,025 | 23 → 24 | 34 → 44 | −11% |
-
-### Reading the table honestly
-
-- The big win is the personalised list: it used to aggregate seats and score all 5,000
-  Jameyas per request; now aggregates are precomputed and ranked lists are memoised.
-- Endpoints that were already cheap are flat or slightly slower: every request now passes
-  through the global rate limiter and compression middleware (one Redis round-trip), and the
-  "after" run shared the machine with the frontend container. That overhead is the price of
-  abuse protection and is acceptable at these latencies.
-- Numbers are from one machine with all services on shared CPUs; use them to compare, not
-  as capacity planning.
-
-**Contract v1.1 (stable ETags, logout, similar, pagination), commit `99059c3`**
-
-Every authenticated request now also checks token revocation (one Redis `EXISTS` + a cached token
-version). New and conditional scenarios:
-
-| Scenario | req/s | p50 ms | p95 ms | p99 ms |
-|---|---:|---:|---:|---:|
-| `GET /jameyas` recommended, page 1 → 200 | 1,477 | 30 | 52 | 72 |
-| `GET /jameyas` page 1 revalidate → **304** | 1,890 | 25 | 37 | 48 |
-| `GET /jameyas/:id` → 200 | 1,610 | 29 | 41 | 54 |
-| `GET /jameyas/:id` revalidate → **304** | 1,869 | 28 | 37 | 50 |
-| `GET /me` revalidate → **304** | 1,991 | 26 | 37 | 53 |
-| `GET /jameyas/:id/similar` (memoised) | 1,022 → **1,659** | 37 → 27 | 118 → 48 | 135 → 67 |
-| `GET /reservations` (paginated, 1 query + payments) | 1,980 | 26 | 38 | 47 |
-
-Details, bytes saved and the 304 rate: [caching.md](caching.md).
-
-### Contention (1,000 concurrent members, one 20-seat Jameya), after the pass
-
-| Mode | Outcome | Wall time | p99 | Double bookings |
-|---|---|---|---|---|
-| spread over 20 seats | 20 × `201`, 786 × `JAMEYA_FULL`, 194 × `SEAT_UNAVAILABLE` | 1.8 s | 1.77 s | **0** |
-| everyone on seat 1 | 1 × `201`, 999 × `SEAT_UNAVAILABLE` | 1.3 s | 1.20 s | **0** |
-| v1.1, spread over 20 seats | 20 × `201`, 878 × `JAMEYA_FULL`, 102 × `SEAT_UNAVAILABLE` | 2.2 s | 2.07 s | **0** |
-| v1.1, everyone on seat 1 | 1 × `201`, 999 × `SEAT_UNAVAILABLE` | 1.2 s | 1.15 s | **0** |
-
-## 3. N+1 findings and fixes
-
-| Where | Before | After | Guard test |
-|---|---|---|---|
-| Marketplace snapshot | Aggregated ~69k seat rows for fee range/totals per refresh | `total_seats`, `min_fee`, `max_fee` denormalised on `jameyas` (triggers); availability via index-only count (21.4 → 4.7 ms) | list with 5 vs 50 items → same query count |
-| Jameya detail | Jameya + seats + viewer lookups in separate round-trips | Seat map in one query (`json_agg`), viewer (profile + KYC + preferences) in one query | 6 vs 24 seats → same query count |
-| `GET /reservations` | Payment looked up per reservation | Payments joined set-based | 1 vs 4 reservations → same count |
-| `GET /me` | Several lookups | Exactly 2 queries (viewer, active holds) | asserts `2` |
-| Hold-expiry sweeper | Released seats row by row | One set-based `UPDATE … FROM` per batch | 2 vs 20 expired holds → same count |
-| Outbox relay | Loaded payment per command | Batch claim joined with payment data | — |
-| `POST /events` | Insert per request | Write-behind buffer, batch insert | 0 queries on request path, 1 per flush |
-
-Tests: `backend/test/query-count.e2e-spec.ts` (helper: `backend/test/support/query-counter.ts`).
-
-## 4. Database
-
-Migration `backend/migrations/0002_performance.sql`:
-
-| Change | Purpose |
-|---|---|
-| `jameyas.total_seats / min_fee / max_fee` + statement-level insert trigger + fee-change trigger | List never aggregates seats. Status changes (booking hot path) **never** touch the `jameyas` row, so there's no hot-row lock under contention. |
-| `reservations_active_by_user_idx (user_id) INCLUDE (jameya_id, id)` partial on active statuses | Index-only "active holds of this member" for booking checks and `/me` |
-| `payment_outbox_payment_command_uq (payment_id, command)` | Each provider command at most once per payment |
-| `payment_outbox_single_settlement_uq (payment_id)` partial on capture/void | A payment is settled (captured **or** voided) at most once — DB-level guarantee |
-| Pool: `statement_timeout`, `idle_in_transaction_session_timeout`, connect timeout | No runaway query or leaked transaction can hold locks |
-| Named prepared statements on hot paths | Skip re-planning for the most frequent queries |
-
-Seat availability is deliberately **not** stored on `jameyas`: that would make every seat claim
-lock the same parent row, serialising the 1,000-user scenario.
-
-## 5. Caching
-
-```mermaid
-flowchart LR
-  R[Request] --> L1{L1 in-process<br/>~1 s, jittered}
-  L1 -- hit --> Resp[Response + ETag]
-  L1 -- miss --> L2{L2 Redis<br/>~3 s, jittered}
-  L2 -- hit --> Resp
-  L2 -- miss --> SF[Single-flight:<br/>1 loader per instance<br/>+ Redis refresh lock]
-  SF --> PG[(PostgreSQL)]
-  PG --> L2
-  L2 -. Redis down / breaker open .-> PG
+```bash
+docker compose -f docker-compose.yml -f backend/docker-compose.test.yml run --rm --build backend-bench
 ```
 
-| Data | L1 | L2 (Redis) | Invalidation | Used by booking? |
-|---|---|---|---|---|
-| Marketplace snapshot (all open Jameyas + base ranking signals) | 1 s | 3 s | TTL (≤5 s staleness allowed) | No |
-| Ranked list per (variant, filters, sort) | memoised (LRU) per snapshot | — | new snapshot | No |
-| Seat map per Jameya | — | 2 s | **deleted on every committed seat change** | **Never** |
-| KYC status | — | fresh ~10 min, stale-if-error 24 h | TTL | Strict path (fail closed) |
-| Availability gate counter | — | 120 s, rebuilt every 10 s from DB | `INCRBY` after commit | Advisory only (fast fail) |
+## Results
 
-Also: **stable** weak ETags + `304 Not Modified` + `X-As-Of` on all cacheable reads (marketplace
-ETags are derived from a per-snapshot content hash, so a match costs no ranking or rendering; see
-[caching.md](caching.md) and ADR-0011), **gzip/brotli** for bodies > 1 kB.
-`/jameyas/{id}/similar` is served from the snapshot and memoised like ranked lists.
+5,000 Jameyas, 50 connections, 10 s per scenario, one laptop. Use the numbers to compare, not to plan capacity.
 
-## 6. Rate limiting
-
-Atomic Redis sliding-window counter (Lua, Redis clock) → headers `RateLimit-Limit`,
-`RateLimit-Remaining`, `RateLimit-Reset`, and `Retry-After` on `429`. If Redis is unavailable
-(breaker open) a per-instance in-memory limiter takes over (fail **open to local**, not to unlimited).
-
-| Policy | Limit | Key |
+| Endpoint | req/s before → after | p99 ms before → after |
 |---|---|---|
-| Global ceiling | `RATE_LIMIT_IP_PER_10S` per 10 s | client IP (`X-Forwarded-For` trusted from private proxy ranges only) |
-| Login | 5 / 60 s | IP |
-| Login | 10 / 15 min | email (credential stuffing across IPs) |
-| Logout | 10 / 60 s | member |
-| Create reservation | 5 / 10 s | member |
-| Checkout | 10 / 60 s | member |
+| `GET /jameyas` recommended | **106 → 1,647** (15.5×) | 884 → 67 |
+| `GET /jameyas` page 5 | **103 → 1,635** | 3,833 → 56 |
+| `GET /jameyas` filtered | 1,097 → 1,676 | 70 → 58 |
+| `GET /jameyas/{id}` | 1,406 → 1,994 | 96 → 58 |
+| `POST /events` | 1,388 → 1,658 | 75 → 58 |
+| `GET /me` | 1,971 → 2,223 | 45 → 44 |
+| `GET /jameyas/{id}/similar` | 1,022 → 1,659 | 135 → 67 |
+
+The big win is the personalised list: it used to aggregate seats and score 5,000 Jameyas on every request. Already-cheap endpoints stayed flat, because each request now also pays for rate limiting and session checks.
+
+A `304` revalidation serves about 1,900 req/s on the list, detail and `/me` ([caching](caching.md)). The 1,000-user test still gives **0 double bookings** ([results](../contention/high-contention.md#load-test)).
+
+## No N+1 queries
+
+`backend/test/query-count.e2e-spec.ts` asserts each endpoint's query count stays constant as data grows.
+
+| Where | Before | After |
+|---|---|---|
+| Marketplace snapshot | Aggregated ~69k seat rows | Totals and fee range stored on `jameyas`; index-only availability count |
+| Jameya detail | Several round trips | Seat map in one query, viewer in one query |
+| `GET /reservations` | One payment lookup per row | One joined query |
+| `GET /me` | Several lookups | Exactly 2 queries |
+| Hold sweeper | Row by row | One set-based update per batch |
+| `POST /events` | Insert per request | Buffered: 0 queries per request, 1 per flush |
+
+**Deliberately not stored:** seat availability on `jameyas`. Every seat claim would lock the same parent row and serialise the 1,000-user rush.
+
+Also: statement and idle-transaction timeouts on the pool, plus prepared statements on hot paths.
+
+## Caching
+
+| Data | Cache | Invalidation | Used by booking? |
+|---|---|---|---|
+| Marketplace snapshot | In-process 1 s + Redis 3 s | Time (≤ 5 s allowed) | No |
+| Ranked list per variant and filters | Memoised per snapshot | New snapshot | No |
+| Seat map | Redis 2 s | Deleted on every seat change | Never |
+| KYC status | Redis ~10 min (24 h if KYC is down) | Time | Yes, fails closed |
+| Seat counter (gate) | Redis, rebuilt every 10 s | Updated after commit | Advisory only |
+
+Plus stable ETags, `304`s and gzip/brotli over 1 kB. Full explanation: [caching](caching.md).
+
+## Rate limits
+
+A Redis sliding window (Lua). If Redis is down, each instance limits locally: it fails over to a local limit, never to no limit. Responses carry `RateLimit-*` headers, and `429` adds `Retry-After`.
+
+| Endpoint | Limit | Per |
+|---|---|---|
+| Any request | `RATE_LIMIT_IP_PER_10S` per 10 s | IP |
+| Login | 5 / min, and 10 / 15 min | IP, and email |
+| Logout | 10 / min | member |
+| Reserve | 5 / 10 s | member |
+| Checkout | 10 / min | member |
 | Cancel | 10 / 10 s | member |
 | Poll reservation | 60 / 10 s | member |
 | List reservations | 30 / 10 s | member |
 | Events | 60 / 10 s | member |
-| Payment webhook | 300 / 10 s | source IP |
+| Webhook | 300 / 10 s | IP |
 
-Single source of truth: `backend/src/shared/http/rate-limit/policies.ts`.
+Source: `backend/src/shared/http/rate-limit/policies.ts`.
 
-## 7. Circuit breakers
+## Circuit breakers
 
-Reusable `CircuitBreaker` + `BreakerRegistry` in `backend/src/shared/resilience/`
-(closed → open after N consecutive failures → half-open single probe → closed).
-States are exposed as an additive field in `GET /health`.
+Closed → open after repeated failures → one trial request → closed. States appear in `GET /health`.
 
-| Dependency | Threshold / open time | When open |
+| Dependency | When open |
+|---|---|
+| KYC provider | Serve cached status; none cached → `503 KYC_UNAVAILABLE` (booking only) |
+| Payment provider | Commands wait in the outbox; the member sees "pending", never a false failure |
+| Redis | Caches read from PostgreSQL; gate and lock fail open; local rate limiter |
+
+## Async work
+
+| Task | How | Guarantee |
 |---|---|---|
-| KYC provider | env `KYC_BREAKER_FAILURE_THRESHOLD` / `KYC_BREAKER_OPEN_MS` | Serve cached status; no cache → `503 KYC_UNAVAILABLE` (booking fails closed, browsing works) |
-| Payment gateway (`ResilientPaymentGateway` decorator, with call timeouts) | 5 failures / 10 s | Commands stay in the outbox and are retried; the user sees `PAYMENT_PENDING`, never a false failure |
-| Redis (`RedisService.guard`) | 3 failures / 5 s | Caches read from PostgreSQL; gate and seat lock fail open (DB still guarantees one winner); local rate limiter |
+| Authorize, capture, void | Outbox, committed with the decision | Never lost on a crash; settled at most once |
+| Analytics events | Buffered, flushed every 250 ms or 500 events | Best effort (never money) |
+| Ranking signals | Computed once per snapshot | ≤ 5 s old |
+| Hold expiry, reconciliation | Set-based jobs, one instance at a time | – |
 
-## 8. Async work
+## Limitations
 
-| Task | Before | After | Guarantee kept |
-|---|---|---|---|
-| Provider authorization | Called after commit from the request | Outbox command committed **with** checkout, kicked immediately after commit, retried by relay | No lost authorize if the process crashes after commit |
-| Capture / void | Outbox | Outbox, batch-claimed with payment data | Settled at most once (unique index) |
-| Analytics events | Insert per request | Write-behind buffer, flushed every 250 ms or 500 events, and on shutdown | Best-effort by design (analytics, not money) |
-| Ranking base signals | Per request | Precomputed per snapshot refresh | ≤5 s staleness |
-| Hold expiry, reconciliation | Jobs | Unchanged, set-based, advisory-lock singletons | — |
-
-## 9. Trade-offs and limitations
-
-- Per-instance L1 cache and breaker state: instances detect failures independently; L1 adds up
-  to ~1 s staleness on top of Redis (still inside the 5 s budget).
-- ETags include `asOf`, so they change on every snapshot refresh and 304s are rarer than they
-  could be (GAP-FE-013). Next step: hash the payload without volatile fields.
-- Events in the write-behind buffer are lost if the process is killed hard (not on graceful
-  shutdown). Acceptable for analytics; never used for money.
-- The global per-IP limiter adds one Redis round-trip to every request (see §2).
+- In-process cache and breaker state are per instance; the in-process cache adds up to 1 s of age (still inside 5 s).
+- Buffered analytics events are lost if the process is killed hard (not on a normal shutdown).
+- The per-IP limiter adds one Redis round trip to every request.
