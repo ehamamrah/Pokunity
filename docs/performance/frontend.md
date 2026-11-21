@@ -148,6 +148,37 @@ is acceptable at this scale and is noted as a limit.
 - **The 504 status is outside the contract's status table.** The body uses the contract envelope with
   `INTERNAL_ERROR`. Recorded as a gap.
 - **Single Lighthouse run per page**, mobile preset, simulated throttling. No field data (RUM) yet.
+- **Two JSON-level limits from v1.1:** `504` and `503` for BFF errors are now the contract's
+  `UPSTREAM_TIMEOUT` and `SERVICE_UNAVAILABLE` codes, and the rate-limit headers are relayed.
+
+## 6a. Contract v1.1 changes (caching, logout, similar, pagination)
+
+v1.1 changes what the frontend can rely on, and this section records what changed and how it was
+verified. The full caching design is in
+[caching-frontend-section.md](caching-frontend-section.md).
+
+| Change | Effect on the browser | How it is verified |
+|---|---|---|
+| `ETag` and `X-As-Of` on reads, `304` relayed | The browser revalidates; unchanged content costs one small round trip; the freshness line still moves on `304` | e2e steps 3 and 4 (`304`), unit `freshness-source.test.ts` |
+| Structural sharing kept | Unchanged cards are not re-rendered | `structural-sharing.test.ts` |
+| `GET /jameyas/{id}/similar` | Inline list on a full Jameya; lazy strip below the seat map, fetched only when visible | e2e step 5; `lazy-similar.test.tsx` (no request before visible) |
+| Reservation pagination | One page (20) per request, `keepPreviousData` keeps the page on screen | e2e step 7; `reservation-pagination.test.tsx` |
+| `payment.resolveBy` | Deadline shown while pending; no request added | `paying-notice.test.tsx` |
+| Logout with revocation | Cache, analytics and cookie cleared; old token rejected at the backend | e2e steps 8 and 9 |
+
+The end-to-end run is `npm run e2e` in `frontend/` against the running docker stack. It goes through
+the BFF with gzip negotiated, as a browser does. Results on the final v1.1 build: **18 of 18 checks
+passed**: login (httpOnly cookie, no token in the body), list decoding through gzip, ETag and
+`X-As-Of` on reads, `304` on revalidation, detail `experiment`, similar (at most five, excluding the
+source), reserve with an idempotent replay, checkout polled to a server-confirmed `CONFIRMED`,
+paginated reservations, logout (`204`, cookie cleared, `Clear-Site-Data`), the revoked token rejected
+with `401` at the backend, the old cookie rejected at the BFF, and logout-all revoking a session from
+another login.
+
+Two honest limits of the measurement. The e2e client is Node's `fetch`, not a real browser, so the
+browser's HTTP cache is verified by the contract and by unit tests rather than by observing a browser
+cache. And the backend's `X-As-Of` on a `304` can repeat the previous timestamp when the backend served
+its own verified cache (within 5 s); the header is still present and correct.
 
 ## 7. Reproducing the measurements
 

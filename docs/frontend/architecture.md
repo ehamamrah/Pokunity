@@ -123,6 +123,36 @@ Key decisions:
   environment. This is why the proxy is a route handler and not a `next.config` rewrite (rewrites
   are baked in at build time).
 
+### Session lifecycle and logout
+
+A session has four ends: sign-in, expiry, sign-out, and revocation from another device. They all
+land in the same place: the BFF cookie is gone, the client cache and analytics queue are empty, and
+the browser's HTTP cache has been cleared.
+
+```mermaid
+sequenceDiagram
+  participant B as Browser (account menu)
+  participant S as BFF DELETE /api/session
+  participant A as Backend POST /auth/logout
+  participant P as BFF /api/v1/* (any request)
+  B->>S: DELETE /api/session {allSessions}
+  S->>A: POST /api/v1/auth/logout (Bearer from cookie)
+  A-->>S: 204 (or 401 if already revoked)
+  S-->>B: 204, Set-Cookie max-age=0, Clear-Site-Data: "cache"
+  Note over B: query cache cleared, analytics queue dropped, redirect to /login?reason=signed_out
+  Note over S: backend unreachable: still 204 + cookie cleared, failure logged without the token
+  B->>P: request with a revoked token (other device, or a copied token)
+  P-->>B: 401 UNAUTHORIZED; BFF clears the cookie
+  Note over B: handleGlobalError: redirect to /login?reason=expired&next=<current path>
+```
+
+- **Revocation is checked by the backend on every request.** The BFF does not trust its own cookie:
+  a 401 with a token clears the cookie, so the next navigation goes to sign-in.
+- **`allSessions: true`** revokes every token of the member (the backend bumps a token version), so
+  a session on another device fails on its next request.
+- **The menu is the only place that signs out.** Escape closes it; sign-out runs through one
+  mutation, so the cleanup (cache, analytics, redirect) cannot be skipped.
+
 ## 6. Data flow and state management
 
 | State | Where it lives | Why |
@@ -160,6 +190,7 @@ injectable: the browser uses `apiClient`, the server uses a client bound to the 
 | Retry policy | `shared/api-client/retry.ts`, `backoff.ts` | Retry only what is not definitive; jittered backoff; honour `Retry-After` |
 | Circuit breaker | `server/bff/circuit-breaker.ts` | Fail fast when the backend is unhealthy; one probe to recover |
 | Rate gate | `shared/api-client/rate-gate.ts` | Hold writes locally for the server's `Retry-After` |
+| Freshness from headers | `shared/api-client/freshness.ts` | `X-As-Of` (200 and 304) becomes the page's `asOf`; the body value is the fallback |
 
 ## 8. Related documents
 

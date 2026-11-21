@@ -29,6 +29,21 @@ flowchart LR
   end
 ```
 
+### Revalidation and `X-As-Of` (contract v1.1)
+
+Marketplace reads now carry an `ETag` over their content, without timestamps, and an `X-As-Of`
+header. Together they change what "stale" means on screen:
+
+- A read the browser already has, and which is still fresh (`max-age=5`), is served with no request.
+- After that, the browser revalidates with `If-None-Match`. Unchanged content returns `304`, and the
+  browser serves its stored body. The freshness line still moves: `X-As-Of` is sent on `304` too.
+- Changed content returns `200` with a new body and a new ETag. Only the changed cards re-render.
+
+So the "updated Xs ago" line is accurate in both cases, and an unchanged marketplace costs one small
+revalidation round trip, not a full download. The booking path is unchanged: holds and checkout always
+read the database, and the seat-conflict rules in section 3 still apply to a stale seat map. Details:
+[performance/caching-frontend-section.md](../performance/caching-frontend-section.md).
+
 ## 2. Why the seat map is still safe to act on
 
 A seat shown as available may be taken a moment later. The UI does not assume the seat map is
