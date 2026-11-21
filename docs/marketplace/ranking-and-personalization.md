@@ -9,10 +9,10 @@ Code: `backend/src/modules/catalog/domain/ranking/`, `catalog/domain/badges.ts`,
 
 ```mermaid
 flowchart LR
-  S[(PostgreSQL)] -- "≤ every 4 s, 1 aggregate query" --> SN[Snapshot<br/>5k listings + featured ids + asOf]
-  U[UsersFacade.getPersonalization] --> CTX
-  X[assignVariant(userId, ranking_v2)] --> CTX[RankingContext + Strategy]
-  SN --> F[Filter specs] --> R[Rank: strategy.rank()] --> O[Sort strategy] --> P[Paginate] --> B[Badges + reasons] --> J[JSON]
+  S[(PostgreSQL)] -- "≤ every 4 s, 1 aggregate query" --> SN["Snapshot<br/>5k listings + featured ids + asOf"]
+  U["UsersFacade.getPersonalization()"] --> CTX
+  X["assignVariant(userId, ranking_v2)"] --> CTX["RankingContext + Strategy"]
+  SN --> F[Filter specs] --> R["Rank: strategy.rank()"] --> O[Sort strategy] --> P[Paginate] --> B[Badges + reasons] --> J[JSON]
   CTX --> R
 ```
 

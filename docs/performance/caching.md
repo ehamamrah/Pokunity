@@ -109,7 +109,7 @@ sequenceDiagram
   A->>A: ETag = W/"abc" (unchanged) → no ranking, no rendering
   A-->>F: 304 Not Modified, ETag W/"abc", X-As-Of T2
   F-->>B: 304, X-As-Of T2
-  Note over B: reuses its stored body; UI shows "updated just now" (T2)
+  Note over B: reuses its stored body, UI shows "updated just now" (T2)
 ```
 
 ## 6. Invalidation: what changes an ETag

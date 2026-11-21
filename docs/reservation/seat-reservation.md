@@ -69,7 +69,7 @@ sequenceDiagram
   API->>DB: tx: claim seat (AVAILABLE→HELD) + insert HELD reservation
   API-->>M: 201 HELD (expiresAt)
   M->>API: POST /reservations/{id}/checkout {tok_success}
-  API->>DB: tx: HELD→PAYMENT_PENDING if expires_at>now(); insert payment AUTHORIZING
+  API->>DB: tx: HELD→PAYMENT_PENDING if expires_at>now() + insert payment AUTHORIZING
   API->>PSP: authorize(reference=paymentId, amount=fee)
   PSP-->>API: intentId
   API-->>M: 202 PAYMENT_PENDING (payment AUTHORIZING)
@@ -111,7 +111,7 @@ sequenceDiagram
     PSP->>API: payment.authorized evt_X
   end
   API->>DB: INSERT payment_events(evt_X) ON CONFLICT DO NOTHING
-  Note over DB: one insert wins; the other two wait on the PK, then insert nothing
+  Note over DB: one insert wins, the other two wait on the PK, then insert nothing
   API-->>PSP: {duplicate:false} once, {duplicate:true} twice
   Note over API,DB: Only the winner confirms the seat and enqueues CAPTURE.<br/>Outbox UNIQUE(payment_id) and ledger UNIQUE(payment_id, CAPTURE) make a second capture impossible.
 ```
@@ -153,7 +153,7 @@ sequenceDiagram
   and
     SW->>DB: SELECT … WHERE status='HELD' AND expires_at < now() FOR UPDATE SKIP LOCKED
   end
-  Note over DB: The sweeper skips the locked row. If checkout won before expiry → PAYMENT_PENDING, and the sweeper can never expire it.<br/>If the clock passed expiry → checkout matches 0 rows → 410 RESERVATION_EXPIRED; the next sweep expires the hold.
+  Note over DB: The sweeper skips the locked row. If checkout won before expiry → PAYMENT_PENDING, and the sweeper can never expire it.<br/>If the clock passed expiry → checkout matches 0 rows → 410 RESERVATION_EXPIRED, and the next sweep expires the hold.
 ```
 
 ### 3.6 Authorization arrives after we gave up
@@ -169,7 +169,7 @@ sequenceDiagram
   API->>DB: tx: payment is FAILED → ledger AUTHORIZE + outbox VOID (re-armed)
   API->>PSP: (relay) void(intent)
   API->>DB: payment FAILED→VOIDED · ledger VOID
-  Note over API,DB: The member is never charged; the reservation stays FAILED.
+  Note over API,DB: The member is never charged and the reservation stays FAILED.
 ```
 
 ## 4. How consistency is ensured

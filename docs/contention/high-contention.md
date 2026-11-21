@@ -24,7 +24,7 @@ flowchart TD
   F -- no --> X5[409 JAMEYA_FULL<br/>no DB work]
   F -- yes --> G{Seat single-flight lock<br/>SET NX PX 3000}
   G -- busy --> X6[409 SEAT_UNAVAILABLE<br/>no DB work]
-  G -- acquired --> H[PG tx: advisory lock(member) ·<br/>UPDATE seats … WHERE status='AVAILABLE' ·<br/>INSERT reservation]
+  G -- acquired --> H["PG tx: advisory lock(member) ·<br/>UPDATE seats … WHERE status='AVAILABLE' ·<br/>INSERT reservation"]
   H -- 0 rows --> X7[409 SEAT_UNAVAILABLE]
   H -- 1 row --> I[COMMIT → DECR counter → 201 HELD]
 ```

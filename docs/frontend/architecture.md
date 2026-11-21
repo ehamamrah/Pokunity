@@ -99,7 +99,7 @@ sequenceDiagram
   B->>P: GET /api/v1/jameyas (cookie sent automatically)
   P->>A: GET /api/v1/jameyas + Authorization: Bearer <cookie value>
   A-->>P: 200 (+ Cache-Control)
-  P-->>B: 200 (headers relayed; token never sent to the browser)
+  P-->>B: 200 (headers relayed, token never sent to the browser)
   Note over P,B: Backend 401 with a token: BFF clears the cookie, UI redirects to /login?reason=expired
 ```
 
@@ -142,7 +142,7 @@ sequenceDiagram
   Note over B: query cache cleared, analytics queue dropped, redirect to /login?reason=signed_out
   Note over S: backend unreachable: still 204 + cookie cleared, failure logged without the token
   B->>P: request with a revoked token (other device, or a copied token)
-  P-->>B: 401 UNAUTHORIZED; BFF clears the cookie
+  P-->>B: 401 UNAUTHORIZED, BFF clears the cookie
   Note over B: handleGlobalError: redirect to /login?reason=expired&next=<current path>
 ```
 

@@ -85,7 +85,7 @@ sequenceDiagram
   I->>U: execute
   U->>U: eligibility chain (KYC → active → limit → risk)
   U->>R: available counter > 0? per-seat single-flight lock
-  U->>DB: BEGIN; advisory lock(user); re-check limits;<br/>UPDATE seats ... WHERE status='AVAILABLE';<br/>INSERT reservation; INSERT audit; COMMIT
+  U->>DB: BEGIN · advisory lock(user) · re-check limits<br/>UPDATE seats ... WHERE status='AVAILABLE'<br/>INSERT reservation · INSERT audit · COMMIT
   U->>R: DECR counter, release seat lock
   U-->>I: 201 Reservation
   I->>DB: store response for replay

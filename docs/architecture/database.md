@@ -33,19 +33,107 @@ erDiagram
   jameyas ||..o{ reservations : "jameya_id"
   payments ||..o{ payment_events : "payment_intent_id"
 
-  users { uuid id PK; text email UK; text risk_tier; bigint typical_monthly_amount; int[] preferred_durations; int token_version }
-  user_behavior { uuid user_id PK; int expired_holds_count; int confirmed_count; bigint confirmed_monthly_total }
-  jameyas { uuid id PK; text code UK; text name; bigint monthly_amount; int duration_months; date start_date }
-  seats { uuid jameya_id PK; int seat_number PK; bigint fee; text status; uuid reservation_id; uuid holder_user_id }
-  featured_campaigns { uuid id PK; uuid jameya_id; text campaign; int priority; timestamptz starts_at; timestamptz ends_at }
-  reservations { uuid id PK; uuid user_id; uuid jameya_id; int seat_number; bigint fee; text status; text failure_reason; timestamptz expires_at }
-  payments { uuid id PK; uuid reservation_id UK; bigint amount; text status; text provider_intent_id UK }
-  payment_events { text event_id PK; text type; text payment_intent_id; jsonb payload; text outcome }
-  ledger_entries { bigserial id PK; uuid payment_id; text entry_type; bigint amount }
-  payment_outbox { uuid id PK; uuid payment_id UK; text command; text status; int attempts; timestamptz next_attempt_at }
-  idempotency_keys { uuid user_id PK; uuid key PK; text request_hash; text status; int response_status; jsonb response_body }
-  analytics_events { bigserial id PK; uuid user_id; text type; uuid jameya_id; text experiment_key; text variant }
-  audit_log { bigserial id PK; text actor; text action; text entity_type; text entity_id; jsonb data; text trace_id }
+  users {
+    uuid id PK
+    text email UK
+    text risk_tier
+    bigint typical_monthly_amount
+    int[] preferred_durations
+    int token_version
+  }
+  user_behavior {
+    uuid user_id PK
+    int expired_holds_count
+    int confirmed_count
+    bigint confirmed_monthly_total
+  }
+  jameyas {
+    uuid id PK
+    text code UK
+    text name
+    bigint monthly_amount
+    int duration_months
+    date start_date
+  }
+  seats {
+    uuid jameya_id PK
+    int seat_number PK
+    bigint fee
+    text status
+    uuid reservation_id
+    uuid holder_user_id
+  }
+  featured_campaigns {
+    uuid id PK
+    uuid jameya_id
+    text campaign
+    int priority
+    timestamptz starts_at
+    timestamptz ends_at
+  }
+  reservations {
+    uuid id PK
+    uuid user_id
+    uuid jameya_id
+    int seat_number
+    bigint fee
+    text status
+    text failure_reason
+    timestamptz expires_at
+  }
+  payments {
+    uuid id PK
+    uuid reservation_id UK
+    bigint amount
+    text status
+    text provider_intent_id UK
+  }
+  payment_events {
+    text event_id PK
+    text type
+    text payment_intent_id
+    jsonb payload
+    text outcome
+  }
+  ledger_entries {
+    bigserial id PK
+    uuid payment_id
+    text entry_type
+    bigint amount
+  }
+  payment_outbox {
+    uuid id PK
+    uuid payment_id UK
+    text command
+    text status
+    int attempts
+    timestamptz next_attempt_at
+  }
+  idempotency_keys {
+    uuid user_id PK
+    uuid key PK
+    text request_hash
+    text status
+    int response_status
+    jsonb response_body
+  }
+  analytics_events {
+    bigserial id PK
+    uuid user_id
+    text type
+    uuid jameya_id
+    text experiment_key
+    text variant
+  }
+  audit_log {
+    bigserial id PK
+    text actor
+    text action
+    text entity_type
+    text entity_id
+    jsonb data
+    text trace_id
+  }
 ```
 
 Money is always `bigint` minor units (halalas). The currency is constrained to `SAR`.
