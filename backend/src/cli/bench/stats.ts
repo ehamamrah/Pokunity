@@ -20,7 +20,7 @@ export function toResult(name: string, latencies: number[], seconds: number, non
 }
 
 export function toMarkdown(results: BenchResult[]): string {
-  const head = '| Scenario | req/s | p50 ms | p95 ms | p99 ms | non-2xx | errors |\n|---|---:|---:|---:|---:|---:|---:|';
+  const head = '| Scenario | req/s | p50 ms | p95 ms | p99 ms | non-2xx/304 | errors |\n|---|---:|---:|---:|---:|---:|---:|';
   const rows = results.map((r) => `| ${r.name} | ${r.rps} | ${r.p50} | ${r.p95} | ${r.p99} | ${r.non2xx} | ${r.errors} |`);
   return [head, ...rows].join('\n');
 }

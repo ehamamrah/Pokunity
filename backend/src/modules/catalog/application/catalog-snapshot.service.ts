@@ -1,22 +1,26 @@
 import { Injectable } from '@nestjs/common';
+import { createHash } from 'node:crypto';
 import { TwoTierCache } from '../../../shared/cache/two-tier-cache';
 import { Clock } from '../../../shared/clock/clock';
 import { JameyaListing } from '../domain/jameya';
 import { baseSignalsOf } from '../domain/ranking/signals';
 import { JameyasRepository } from '../infrastructure/jameyas.repository';
 
-export const SNAPSHOT_KEY = 'mkt:snapshot:v2';
+export const SNAPSHOT_KEY = 'mkt:snapshot:v3';
 /** L1 1 s + L2 3 s (±jitter) keeps the worst-case age of a response below the contract's 5 s. */
 export const SNAPSHOT_POLICY = { key: SNAPSHOT_KEY, l1Ms: 1000, l2Ms: 3000, lockMs: 2000 };
 
 interface StoredSnapshot {
   asOf: string;
+  /** Hash of everything a viewer can see, EXCLUDING asOf: unchanged data ⇒ unchanged hash. */
+  contentHash: string;
   listings: JameyaListing[];
   featuredIds: string[];
 }
 
 export interface CatalogSnapshot {
   version: string;
+  contentHash: string;
   asOf: Date;
   listings: JameyaListing[];
   byId: Map<string, JameyaListing>;
@@ -53,13 +57,14 @@ export class CatalogSnapshotService {
     const [rows, featuredIds] = await Promise.all([this.repository.loadListings(), this.repository.loadFeaturedIds()]);
     const featured = new Set(featuredIds);
     const listings = rows.map((row) => ({ ...row, base: baseSignalsOf(row, now, featured) }));
-    return { asOf: now.toISOString(), listings, featuredIds };
+    const contentHash = createHash('sha1').update(JSON.stringify([listings, featuredIds])).digest('base64url');
+    return { asOf: now.toISOString(), contentHash, listings, featuredIds };
   }
 }
 
 function materialize(s: StoredSnapshot): CatalogSnapshot {
   return {
-    version: s.asOf, asOf: new Date(s.asOf), listings: s.listings, featuredIds: s.featuredIds,
+    version: s.contentHash, contentHash: s.contentHash, asOf: new Date(s.asOf), listings: s.listings, featuredIds: s.featuredIds,
     byId: new Map(s.listings.map((l) => [l.id, l])), featuredSet: new Set(s.featuredIds),
   };
 }

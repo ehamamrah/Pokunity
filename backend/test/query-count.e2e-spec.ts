@@ -1,5 +1,7 @@
 import { BufferedEventWriter } from '../src/modules/analytics/infrastructure/buffered-event-writer';
 import { HoldExpiryJob } from '../src/modules/reservations/application/hold-expiry.job';
+import { SNAPSHOT_KEY } from '../src/modules/catalog/application/catalog-snapshot.service';
+import { TwoTierCache } from '../src/shared/cache/two-tier-cache';
 import { checkout, createJameya, createMember, createMembers, Member, reserve } from './support/fixtures';
 import { Harness, startHarness } from './support/harness';
 import { countQueries } from './support/query-counter';
@@ -33,7 +35,13 @@ test('GET /jameyas/:id is constant in queries regardless of the number of seats'
   const a = await queriesOf(`/api/v1/jameyas/${small}`);
   const b = await queriesOf(`/api/v1/jameyas/${large}`);
   expect(b).toBe(a);
-  expect(a).toBeLessThanOrEqual(2); // viewer + one-query seat map (cached ≤ 2 s)
+  expect(a).toBeLessThanOrEqual(3); // viewer + active-hold count + one-query seat map (cached ≤ 2 s)
+});
+
+test('GET /jameyas/{id}/similar is served from the snapshot (no per-request catalog query)', async () => {
+  const id = await createJameya(h);
+  await h.app.get(TwoTierCache).invalidate(SNAPSHOT_KEY); // make sure the new Jameya is in the snapshot
+  expect(await queriesOf(`/api/v1/jameyas/${id}/similar`)).toBeLessThanOrEqual(1); // viewer preferences only
 });
 
 async function memberWithReservations(count: number): Promise<Member> {
@@ -45,7 +53,7 @@ async function memberWithReservations(count: number): Promise<Member> {
   return m;
 }
 
-test('GET /reservations is constant in queries (1 vs 4 reservations, payments joined set-based)', async () => {
+test('GET /reservations is constant in queries (1 vs 4 reservations; page + total in one query)', async () => {
   const [one, four] = [await memberWithReservations(1), await memberWithReservations(4)];
   const a = await queriesOf('/api/v1/reservations', one);
   const b = await queriesOf('/api/v1/reservations', four);

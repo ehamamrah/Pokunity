@@ -19,4 +19,7 @@ export class ListReservationsQuery {
   @IsArray()
   @IsIn(STATUSES, { each: true })
   status?: ReservationStatus[];
+
+  @IsOptional() @Type(() => Number) @IsInt() @Min(1) page: number = 1;
+  @IsOptional() @Type(() => Number) @IsInt() @Min(1) @Max(50) pageSize: number = 20;
 }

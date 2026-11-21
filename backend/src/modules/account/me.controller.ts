@@ -1,4 +1,6 @@
-import { Controller, Get, Header } from '@nestjs/common';
+import { Controller, Get, Header, UseInterceptors } from '@nestjs/common';
+import { Conditional, conditionalFromBody } from '../../shared/http/conditional';
+import { ConditionalGetInterceptor } from '../../shared/http/conditional-get.interceptor';
 import { AuthenticatedUser, CurrentUser } from '../../shared/http/current-user.decorator';
 import { ReservationsFacade } from '../reservations/reservations.facade';
 import { UsersFacade } from '../users/users.facade';
@@ -15,13 +17,15 @@ export class MeController {
   ) {}
 
   @Get()
-  @Header('Cache-Control', 'private, no-store')
-  async me(@CurrentUser() user: AuthenticatedUser) {
+  @Header('Cache-Control', 'private, no-cache')
+  @UseInterceptors(ConditionalGetInterceptor)
+  async me(@CurrentUser() user: AuthenticatedUser): Promise<Conditional> {
     const [{ profile, eligibility }, activeHolds] = await Promise.all([
       this.users.getViewer(user.id), this.reservations.activeHoldsCount(user.id),
     ]);
     const { id, name, email, riskTier, preferences } = profile;
     const limits = { maxActiveHolds: eligibility.maxActiveHolds, activeHolds };
-    return { id, name, email, kycStatus: eligibility.kyc.status, kycCheckedAt: eligibility.kyc.checkedAt, riskTier, preferences, limits };
+    const body = { id, name, email, kycStatus: eligibility.kyc.status, kycCheckedAt: eligibility.kyc.checkedAt, riskTier, preferences, limits };
+    return conditionalFromBody(body, new Date(), ['kycCheckedAt']); // a re-check alone is not a change
   }
 }

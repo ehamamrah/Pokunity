@@ -1,6 +1,8 @@
-import { Body, Controller, Delete, Get, Param, ParseUUIDPipe, Post, Query, Res, UseGuards, UseInterceptors } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Header, Param, ParseUUIDPipe, Post, Query, Res, UseGuards, UseInterceptors } from '@nestjs/common';
 import { Response } from 'express';
 import { Errors } from '../../../shared/errors/app-error';
+import { Conditional, conditionalFromBody } from '../../../shared/http/conditional';
+import { ConditionalGetInterceptor } from '../../../shared/http/conditional-get.interceptor';
 import { AuthenticatedUser, CurrentUser } from '../../../shared/http/current-user.decorator';
 import { RateLimits } from '../../../shared/http/rate-limit/policies';
 import { RateLimit, RateLimitGuard } from '../../../shared/http/rate-limit/rate-limit.guard';
@@ -33,14 +35,19 @@ export class ReservationsController {
 
   @Get()
   @RateLimit(RateLimits.reservationList)
-  list(@CurrentUser() user: AuthenticatedUser, @Query() query: ListReservationsQuery) {
-    return this.queries.list(user.id, query.status ?? null).then((data) => ({ data }));
+  @Header('Cache-Control', 'private, no-cache')
+  @UseInterceptors(ConditionalGetInterceptor)
+  async list(@CurrentUser() user: AuthenticatedUser, @Query() query: ListReservationsQuery): Promise<Conditional> {
+    const page = await this.queries.list(user.id, { statuses: query.status ?? null, page: query.page, pageSize: query.pageSize });
+    return conditionalFromBody(page, new Date());
   }
 
   @Get(':id')
   @RateLimit(RateLimits.reservationPoll)
-  get(@CurrentUser() user: AuthenticatedUser, @Param('id', uuid) id: string) {
-    return this.queries.get(user.id, id);
+  @Header('Cache-Control', 'private, no-cache')
+  @UseInterceptors(ConditionalGetInterceptor)
+  async get(@CurrentUser() user: AuthenticatedUser, @Param('id', uuid) id: string): Promise<Conditional> {
+    return conditionalFromBody(await this.queries.get(user.id, id), new Date());
   }
 
   @Post(':id/checkout')

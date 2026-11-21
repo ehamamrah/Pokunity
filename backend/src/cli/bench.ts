@@ -3,7 +3,7 @@ import { Pool } from 'pg';
 import { loadUsers } from './loadtest/fixture';
 import { mintToken } from './loadtest/jwt';
 import { runScenario } from './bench/runner';
-import { buildScenarios } from './bench/scenarios';
+import { buildScenarios, Scenario } from './bench/scenarios';
 import { BenchResult, toMarkdown } from './bench/stats';
 
 /**
@@ -26,13 +26,20 @@ async function prepare(pool: Pool): Promise<{ tokens: string[]; jameyaId: string
   return { tokens, jameyaId: rows[0].id };
 }
 
+/** Revalidation scenarios: one member, the ETag of a previous 200 → every request should be a 304. */
+async function optionsFor(s: Scenario, tokens: string[]): Promise<{ tokens: string[]; headers?: Record<string, string> }> {
+  if (!s.revalidate) return { tokens };
+  const res = await fetch(`${env.baseUrl}${s.path}`, { headers: { authorization: `Bearer ${tokens[0]}` } });
+  return { tokens: [tokens[0]], headers: { 'if-none-match': res.headers.get('etag') ?? '' } };
+}
+
 async function main(): Promise<void> {
   const pool = new Pool({ connectionString: process.env.DATABASE_URL, max: 2 });
   const { tokens, jameyaId } = await prepare(pool).finally(() => pool.end());
   const scenarios = buildScenarios(jameyaId).filter((s) => !env.only || s.name.includes(env.only));
   const results: BenchResult[] = [];
   for (const s of scenarios) {
-    results.push(await runScenario(s, { ...env, tokens }));
+    results.push(await runScenario(s, { ...env, ...(await optionsFor(s, tokens)) }));
     console.log(JSON.stringify(results.at(-1)));
   }
   console.log(`\n${toMarkdown(results)}`);

@@ -20,6 +20,10 @@ const TAKE_SQL = `
   WHERE reservation_id = $1 AND status = 'HELD'
   RETURNING 1`;
 
+// Active holds of a member = seats HELD by them (HELD and PAYMENT_PENDING reservations both hold the
+// seat). Catalog-owned data, so the detail page needs no call into the reservations module.
+const HELD_BY_SQL = namedSql('seats_held_by', `SELECT count(*)::int AS n FROM seats WHERE holder_user_id = $1 AND status = 'HELD'`);
+
 const AVAILABLE_COUNTS_SQL = `
   SELECT jameya_id, count(*) FILTER (WHERE status = 'AVAILABLE')::int AS available
   FROM seats WHERE jameya_id = ANY($1::uuid[]) GROUP BY jameya_id`;
@@ -41,6 +45,10 @@ export class SeatsRepository {
 
   async markTaken(tx: SqlExecutor, reservationId: string): Promise<boolean> {
     return (await tx.query(TAKE_SQL, [reservationId])).rowCount === 1;
+  }
+
+  async countHeldBy(userId: string): Promise<number> {
+    return (await this.db.query<{ n: number }>(HELD_BY_SQL, [userId])).rows[0].n;
   }
 
   async availableCounts(jameyaIds: string[]): Promise<Map<string, number>> {

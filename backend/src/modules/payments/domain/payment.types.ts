@@ -7,9 +7,11 @@ export interface PaymentSummary {
   status: PaymentStatus;
   amount: number;
   currency: 'SAR';
+  /** v1.1: reconciliation deadline while AUTHORIZING (createdAt + PAYMENT_TIMEOUT_SECONDS); else null. */
+  resolveBy: string | null;
 }
 
-export interface PaymentRecord extends PaymentSummary {
+export interface PaymentRecord extends Omit<PaymentSummary, 'resolveBy'> {
   reservationId: string;
   userId: string;
   providerIntentId: string | null;

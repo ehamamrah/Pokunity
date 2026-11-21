@@ -1,8 +1,10 @@
 import { Injectable } from '@nestjs/common';
 import { LruCache } from '../../../shared/cache/lru';
-import { ExperimentAssignment } from '../../analytics/domain/experiments';
+import { Errors } from '../../../shared/errors/app-error';
+import { Conditional, conditionalFromInputs } from '../../../shared/http/conditional';
 import { JameyaListing, JameyaSummary } from '../domain/jameya';
 import { buildFilterSpec, ListingFilter } from '../domain/listing-filter';
+import { findSimilar } from '../domain/similarity';
 import { Ranked, SORT_STRATEGIES, SortKey } from '../domain/sort-strategies';
 import { CatalogSnapshot, CatalogSnapshotService } from './catalog-snapshot.service';
 import { RankingContextFactory, ViewerRanking } from './ranking-context.factory';
@@ -14,17 +16,17 @@ export interface ListQuery extends ListingFilter {
   pageSize: number;
 }
 
-export interface ListResult {
-  data: JameyaSummary[];
-  meta: { page: number; pageSize: number; total: number; asOf: string; experiment: ExperimentAssignment };
-}
-
 export const FEATURED_LIMIT = 10;
 
+/** Everything about the viewer that changes a marketplace response (part of every list ETag). */
+function viewerInputs(v: ViewerRanking): unknown[] {
+  return [v.experiment.key, v.experiment.variant, v.context.typicalMonthlyAmount, v.context.preferredDurations];
+}
+
 /**
- * Marketplace read side: filter → score → sort → paginate over the shared ≤ 5 s snapshot.
- * The ordered result is memoised per (snapshot version, viewer profile, filters, sort), so paging and
- * polling do not re-rank; reasons/badges are built for the returned page only.
+ * Marketplace read side over the shared ≤ 5 s snapshot. Each read returns a `Conditional` whose ETag
+ * is derived from (snapshot content hash, viewer inputs, query): a revalidation that matches costs
+ * no ranking and no serialisation. Ordered results are memoised per (snapshot, viewer, query).
  */
 @Injectable()
 export class MarketplaceService {
@@ -35,36 +37,53 @@ export class MarketplaceService {
     private readonly rankingFactory: RankingContextFactory,
   ) {}
 
-  async list(userId: string, query: ListQuery): Promise<ListResult> {
-    const snapshot = await this.snapshots.get();
-    const viewer = await this.rankingFactory.forViewer(userId, snapshot.featuredSet, snapshot.asOf);
-    const ranked = this.rankedFor(snapshot, viewer, query);
-    const start = (query.page - 1) * query.pageSize;
-    const data = ranked.slice(start, start + query.pageSize).map((j) => this.present(j, viewer));
-    const { page, pageSize } = query;
-    const meta = { page, pageSize, total: ranked.length, asOf: snapshot.asOf.toISOString(), experiment: viewer.experiment };
-    return { data, meta };
+  async list(userId: string, query: ListQuery): Promise<Conditional> {
+    const { snapshot, viewer } = await this.load(userId);
+    const queryKey = [query.sort, query.minMonthly, query.maxMonthly, query.duration, query.q?.trim().toLowerCase(), query.availableOnly];
+    const inputs = [snapshot.contentHash, ...viewerInputs(viewer), 'list', ...queryKey, query.page, query.pageSize];
+    return conditionalFromInputs(inputs, snapshot.asOf, () => {
+      const ranked = this.rankedFor(snapshot, viewer, query, queryKey.join('|'));
+      const start = (query.page - 1) * query.pageSize;
+      const data = ranked.slice(start, start + query.pageSize).map((j) => this.present(j, viewer));
+      const meta = { page: query.page, pageSize: query.pageSize, total: ranked.length, asOf: snapshot.asOf.toISOString(), experiment: viewer.experiment };
+      return { data, meta };
+    });
   }
 
-  async featured(userId: string): Promise<{ data: JameyaSummary[]; meta: { asOf: string } }> {
-    const snapshot = await this.snapshots.get();
-    const viewer = await this.rankingFactory.forViewer(userId, snapshot.featuredSet, snapshot.asOf);
-    const data = snapshot.featuredIds
-      .map((id) => snapshot.byId.get(id))
-      .filter((j): j is JameyaListing => !!j && j.seatsAvailable > 0)
-      .slice(0, FEATURED_LIMIT)
-      .map((j) => this.present(j, viewer));
-    return { data, meta: { asOf: snapshot.asOf.toISOString() } };
+  async featured(userId: string): Promise<Conditional> {
+    const { snapshot, viewer } = await this.load(userId);
+    return conditionalFromInputs([snapshot.contentHash, ...viewerInputs(viewer), 'featured'], snapshot.asOf, () => {
+      const data = snapshot.featuredIds
+        .map((id) => snapshot.byId.get(id))
+        .filter((j): j is JameyaListing => !!j && j.seatsAvailable > 0)
+        .slice(0, FEATURED_LIMIT)
+        .map((j) => this.present(j, viewer));
+      return { data, meta: { asOf: snapshot.asOf.toISOString() } };
+    });
+  }
+
+  /** Served entirely from the snapshot: no database query per request. */
+  async similar(userId: string, jameyaId: string): Promise<Conditional> {
+    const { snapshot, viewer } = await this.load(userId);
+    const target = snapshot.byId.get(jameyaId);
+    if (!target) throw Errors.notFound('Jameya');
+    return conditionalFromInputs([snapshot.contentHash, ...viewerInputs(viewer), 'similar', jameyaId], snapshot.asOf, () => {
+      const matches = findSimilar(target, snapshot.listings, (j) => viewer.strategy.score(j, viewer.context));
+      return { data: matches.map((j) => this.present(j, viewer)), meta: { asOf: snapshot.asOf.toISOString(), experiment: viewer.experiment } };
+    });
   }
 
   present(j: JameyaListing, viewer: ViewerRanking): JameyaSummary {
     return toSummary(j, viewer.strategy.rank(j, viewer.context), viewer.context);
   }
 
-  private rankedFor(snapshot: CatalogSnapshot, viewer: ViewerRanking, q: ListQuery): JameyaListing[] {
-    const { typicalMonthlyAmount, preferredDurations } = viewer.context;
-    const key = [snapshot.version, viewer.experiment.variant, typicalMonthlyAmount, preferredDurations.join('.'),
-      q.sort, q.minMonthly, q.maxMonthly, q.duration, q.q?.trim().toLowerCase(), q.availableOnly].join('|');
+  private async load(userId: string): Promise<{ snapshot: CatalogSnapshot; viewer: ViewerRanking }> {
+    const snapshot = await this.snapshots.get();
+    return { snapshot, viewer: await this.rankingFactory.forViewer(userId, snapshot.featuredSet, snapshot.asOf) };
+  }
+
+  private rankedFor(snapshot: CatalogSnapshot, viewer: ViewerRanking, q: ListQuery, queryKey: string): JameyaListing[] {
+    const key = [snapshot.version, ...viewerInputs(viewer), queryKey].join('|');
     const cached = this.rankedCache.get(key);
     if (cached) return cached;
     const ranked = this.rank(snapshot.listings.filter(buildFilterSpec(q)), viewer, q.sort);

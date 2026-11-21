@@ -7,6 +7,8 @@ export interface RunOptions {
   connections: number;
   seconds: number;
   tokens: string[];
+  /** Extra headers (e.g. If-None-Match for revalidation scenarios). */
+  headers?: Record<string, string>;
 }
 
 let counter = 0;
@@ -22,7 +24,7 @@ export function runScenario(s: Scenario, o: RunOptions): Promise<BenchResult> {
   let non2xx = 0;
   const onResponse = (_c: unknown, status: number, _b: number, ms: number) => {
     latencies.push(Math.round(ms));
-    if (status < 200 || status > 299) non2xx += 1;
+    if ((status < 200 || status > 299) && status !== 304) non2xx += 1;
   };
   return new Promise((resolve) => {
     const instance = autocannon(options(s, o), (_err, r) =>
@@ -32,6 +34,6 @@ export function runScenario(s: Scenario, o: RunOptions): Promise<BenchResult> {
 }
 
 function options(s: Scenario, o: RunOptions): autocannon.Options {
-  const setupRequest = (req: autocannon.Request) => ({ ...req, headers: headersFor(o.tokens), body: s.body?.() });
+  const setupRequest = (req: autocannon.Request) => ({ ...req, headers: { ...headersFor(o.tokens), ...o.headers }, body: s.body?.() });
   return { url: o.baseUrl, connections: o.connections, duration: o.seconds, requests: [{ method: s.method, path: s.path, setupRequest }] };
 }

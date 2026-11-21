@@ -11,7 +11,6 @@ import { PaymentsModule } from './modules/payments/payments.module';
 import { ReservationsModule } from './modules/reservations/reservations.module';
 import { UsersModule } from './modules/users/users.module';
 import { GlobalRateLimitMiddleware } from './shared/http/rate-limit/global-rate-limit.middleware';
-import { RequestContextMiddleware } from './shared/logging/request-context.middleware';
 import { SharedModule } from './shared/shared.module';
 
 /** Modular monolith composition root. API and background jobs run in the same process. */
@@ -33,6 +32,7 @@ import { SharedModule } from './shared/shared.module';
 })
 export class AppModule implements NestModule {
   configure(consumer: MiddlewareConsumer): void {
-    consumer.apply(RequestContextMiddleware, GlobalRateLimitMiddleware).forRoutes('{*splat}');
+    // Request context is installed first at the Express level (bootstrap.ts), before body parsing.
+    consumer.apply(GlobalRateLimitMiddleware).forRoutes('{*splat}');
   }
 }

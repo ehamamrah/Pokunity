@@ -63,10 +63,10 @@ export class PaymentsRepository {
     return res.rowCount === 1;
   }
 
-  async summariesByReservation(reservationIds: string[]): Promise<Map<string, PaymentSummary>> {
+  async byReservations(reservationIds: string[]): Promise<Map<string, PaymentRecord>> {
     if (reservationIds.length === 0) return new Map();
     const { rows } = await this.db.query<PaymentRow>('SELECT * FROM payments WHERE reservation_id = ANY($1::uuid[])', [reservationIds]);
-    return new Map(rows.map((r) => [r.reservation_id, toSummary(r)]));
+    return new Map(rows.map((r) => [r.reservation_id, toRecord(r)]));
   }
 
   async findStaleAuthorizing(afterSeconds: number, timeoutSeconds: number, limit: number): Promise<StalePayment[]> {
@@ -75,7 +75,7 @@ export class PaymentsRepository {
   }
 }
 
-function toSummary(r: PaymentRow): PaymentSummary {
+function toSummary(r: PaymentRow): Omit<PaymentSummary, 'resolveBy'> {
   return { id: r.id, status: r.status, amount: r.amount, currency: 'SAR' };
 }
 

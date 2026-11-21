@@ -30,6 +30,14 @@ const TRANSITION_SQL = `
   WHERE id = $1 AND status = ANY($3::text[]) AND (NOT $5 OR expires_at > now())
   RETURNING *`;
 
+const PAGE_SQL = namedSql('reservations_page', `
+  SELECT p.*, t.total FROM
+    (SELECT count(*)::int AS total FROM reservations
+     WHERE user_id = $1 AND ($2::text[] IS NULL OR status = ANY($2::text[]))) t
+  LEFT JOIN LATERAL
+    (SELECT * FROM reservations WHERE user_id = $1 AND ($2::text[] IS NULL OR status = ANY($2::text[]))
+     ORDER BY created_at DESC, id LIMIT $3 OFFSET $4) p ON true`);
+
 // Sweeper: ONLY status = 'HELD' is ever expired; PAYMENT_PENDING can never match.
 const EXPIRE_BATCH_SQL = `
   UPDATE reservations r SET status = 'EXPIRED', failure_reason = 'HOLD_EXPIRED', updated_at = now()
@@ -81,11 +89,11 @@ export class ReservationsRepository {
     return rows[0] ? toRecord(rows[0]) : null;
   }
 
-  async listByUser(userId: string, statuses: ReservationStatus[] | null): Promise<ReservationRecord[]> {
-    const { rows } = await this.db.query<Row>(
-      `SELECT * FROM reservations WHERE user_id = $1 AND ($2::text[] IS NULL OR status = ANY($2::text[]))
-       ORDER BY created_at DESC, id LIMIT 200`, [userId, statuses]);
-    return rows.map(toRecord);
+  /** One round trip for the page AND the total (the LATERAL page may be empty past the last page). */
+  async pageByUser(userId: string, statuses: ReservationStatus[] | null, page: { limit: number; offset: number }) {
+    const { rows } = await this.db.query<Row & { total: number }>(PAGE_SQL, [userId, statuses, page.limit, page.offset]);
+    const records = rows.filter((r) => r.id !== null).map(toRecord);
+    return { records, total: rows[0]?.total ?? 0 };
   }
 }
 

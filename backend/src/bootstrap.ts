@@ -8,6 +8,7 @@ import { AppConfig } from './shared/config/app-config';
 import { HttpExceptionFilter } from './shared/errors/http-exception.filter';
 import { createValidationPipe } from './shared/errors/validation';
 import { JsonLogger } from './shared/logging/json-logger';
+import { RequestContextMiddleware } from './shared/logging/request-context.middleware';
 
 /** Builds the HTTP application (shared by main.ts and the e2e tests). */
 export async function createApp(): Promise<INestApplication> {
@@ -22,9 +23,12 @@ export async function createApp(): Promise<INestApplication> {
 
 function configureHttp(app: NestExpressApplication, config: AppConfig): void {
   app.set('trust proxy', config.env.TRUST_PROXY);
+  // FIRST middleware: every response (including body-parser errors) gets an X-Request-Id.
+  const requestContext = new RequestContextMiddleware();
+  app.use(requestContext.use.bind(requestContext));
   app.use(helmet());
   app.use(compression({ threshold: 1024 })); // gzip / brotli (Accept-Encoding negotiated)
-  app.enableCors({ origin: config.corsOrigins, exposedHeaders: ['X-Request-Id', 'Retry-After', 'Idempotent-Replayed', 'ETag', 'RateLimit-Limit', 'RateLimit-Remaining', 'RateLimit-Reset'] });
+  app.enableCors({ origin: config.corsOrigins, exposedHeaders: ['X-Request-Id', 'Retry-After', 'Idempotent-Replayed', 'ETag', 'X-As-Of', 'RateLimit-Limit', 'RateLimit-Remaining', 'RateLimit-Reset'] });
   app.setGlobalPrefix('api/v1');
   app.useGlobalPipes(createValidationPipe());
   app.useGlobalFilters(new HttpExceptionFilter());

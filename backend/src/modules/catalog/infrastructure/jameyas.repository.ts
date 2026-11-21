@@ -49,6 +49,8 @@ export interface BookingJameya {
 export interface SeatMap {
   jameya: JameyaRow;
   seats: SeatRecord[];
+  /** When this seat map was read from PostgreSQL (becomes X-As-Of). */
+  loadedAt: string;
 }
 
 @Injectable()
@@ -71,7 +73,7 @@ export class JameyasRepository {
     if (!rows[0]) return null;
     const seats = rows[0].seats ?? [];
     const jameya = { ...toRow(rows[0]), seatsAvailable: seats.filter((s) => s.status === 'AVAILABLE').length };
-    return { jameya, seats };
+    return { jameya, seats, loadedAt: new Date().toISOString() };
   }
 
   async findForBooking(id: string): Promise<BookingJameya | null> {

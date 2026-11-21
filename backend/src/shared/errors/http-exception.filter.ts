@@ -1,4 +1,5 @@
 import { ArgumentsHost, Catch, ExceptionFilter, HttpException, Logger } from '@nestjs/common';
+import { randomUUID } from 'node:crypto';
 import { Response } from 'express';
 import { RequestContextStore } from '../logging/request-context';
 import { AppError } from './app-error';
@@ -21,7 +22,7 @@ export class HttpExceptionFilter implements ExceptionFilter {
   catch(exception: unknown, host: ArgumentsHost): void {
     const res = host.switchToHttp().getResponse<Response>();
     const error = this.toAppError(exception);
-    const traceId = RequestContextStore.requestId() ?? String(res.getHeader('X-Request-Id') ?? '');
+    const traceId = traceIdOf(res);
     Object.entries(error.headers).forEach(([k, v]) => res.setHeader(k, v));
     const { code, message, details } = error;
     res.status(error.httpStatus).json({ error: { code, message, details, traceId } });
@@ -42,4 +43,14 @@ export class HttpExceptionFilter implements ExceptionFilter {
     const message = code === ErrorCode.VALIDATION_ERROR ? 'Malformed request.' : exception.message;
     return new AppError(code, message);
   }
+}
+
+/**
+ * Never empty: the request context, else the X-Request-Id already sent (errors raised outside the
+ * async context, e.g. by the JSON body parser), else a fresh id that is also returned as the header.
+ */
+function traceIdOf(res: Response): string {
+  const id = RequestContextStore.requestId() ?? (res.getHeader('X-Request-Id') as string | undefined) ?? randomUUID();
+  if (!res.headersSent) res.setHeader('X-Request-Id', id);
+  return id;
 }

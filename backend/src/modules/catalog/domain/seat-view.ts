@@ -13,10 +13,25 @@ export interface SeatView {
   restrictionReason: RestrictionReason | null;
 }
 
-/** Viewer-level block: KYC must be VERIFIED to reserve anything (fail closed when UNKNOWN). */
+export type BlockingReason = RestrictionReason | 'HOLD_LIMIT';
+
+/** Seat-level block: KYC must be VERIFIED to reserve anything (fail closed when UNKNOWN). */
 export function blockingReasonOf(kyc: KycStatus): RestrictionReason | null {
   if (kyc === 'VERIFIED') return null;
   return kyc === 'UNKNOWN' ? 'KYC_UNAVAILABLE' : 'KYC_REQUIRED';
+}
+
+/**
+ * Viewer-level block (v1.1): KYC first; then HOLD_LIMIT when the viewer already holds the maximum
+ * number of seats elsewhere. A hold in THIS Jameya is explained by `activeReservationId` instead.
+ */
+export function viewerBlockingReason(
+  kyc: KycStatus,
+  holds: { active: number; max: number; heldHere: boolean },
+): BlockingReason | null {
+  const kycReason = blockingReasonOf(kyc);
+  if (kycReason) return kycReason;
+  return !holds.heldHere && holds.active >= holds.max ? 'HOLD_LIMIT' : null;
 }
 
 export function toSeatView(
