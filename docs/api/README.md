@@ -108,7 +108,7 @@ Every non-2xx response:
 | 429 | `RATE_LIMITED` | `retryAfterSeconds` | Honor `Retry-After` header (seconds). |
 | 500 | `INTERNAL_ERROR` | – | Unexpected. |
 | 503 | `KYC_UNAVAILABLE` | – | KYC service down and no cached status → "try again shortly". Browsing still works. |
-| 503 | `SERVICE_UNAVAILABLE` | – | *BFF-generated:* backend unreachable or circuit open. Honor `Retry-After`. |
+| 503 | `SERVICE_UNAVAILABLE` | – | Temporarily unable to serve; honor `Retry-After`. Sent by the **BFF** when the backend is unreachable or its circuit is open, and by the **backend** on reserve/checkout when the session cannot be verified (revocation store down — fail closed without logging the member out). |
 | 504 | `UPSTREAM_TIMEOUT` | – | *BFF-generated:* backend did not answer within 10 s. Safe to retry reads; retry writes with the **same** Idempotency-Key. |
 
 Every error, including validation errors raised before a handler runs, carries a non-empty `traceId` (equal to the `X-Request-Id` response header).
