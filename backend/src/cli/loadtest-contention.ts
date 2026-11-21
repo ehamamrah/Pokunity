@@ -1,6 +1,6 @@
 import { Pool } from 'pg';
 import { createArena, LoadUser, loadUsers, verify } from './loadtest/fixture';
-import { attempt, Attempt, cancel } from './loadtest/fire';
+import { attempt, Attempt, cancel, clientIp } from './loadtest/fire';
 import { mintToken } from './loadtest/jwt';
 import { printReport, summarize } from './loadtest/report';
 
@@ -20,7 +20,7 @@ const env = {
 
 async function fireAll(users: LoadUser[], tokens: string[], jameyaId: string, mode: string): Promise<Attempt[]> {
   const seatOf = (i: number) => (mode === 'same' ? 1 : (i % env.seats) + 1);
-  return Promise.all(users.map((_, i) => attempt(env.baseUrl, tokens[i], jameyaId, seatOf(i))));
+  return Promise.all(users.map((_, i) => attempt(env.baseUrl, tokens[i], jameyaId, seatOf(i), clientIp(i))));
 }
 
 async function runMode(pool: Pool, users: LoadUser[], tokens: string[], mode: string): Promise<boolean> {
