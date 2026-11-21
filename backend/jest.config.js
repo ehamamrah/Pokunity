@@ -3,7 +3,8 @@ const base = {
   preset: 'ts-jest',
   testEnvironment: 'node',
   moduleFileExtensions: ['ts', 'js', 'json'],
-  transform: { '^.+\\.ts$': ['ts-jest', { tsconfig: 'tsconfig.json' }] },
+  // Transpile-only (types are checked by `npm run typecheck`/lint): fast, low-memory test runs.
+  transform: { '^.+\\.ts$': ['ts-jest', { tsconfig: 'tsconfig.jest.json' }] },
 };
 
 module.exports = {

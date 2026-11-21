@@ -16,12 +16,14 @@ function statementOf(arg: unknown): string {
 /**
  * Counts every SQL statement sent to PostgreSQL while `fn` runs (all pool and transaction queries go
  * through pg's Client#query). Used to prove that endpoints are O(1) in queries (no N+1).
+ * `ignore` excludes background work that may interleave (e.g. the buffered analytics flush timer).
  */
-export async function countQueries<T>(fn: () => Promise<T>): Promise<Counted<T>> {
+export async function countQueries<T>(fn: () => Promise<T>, ignore?: RegExp): Promise<Counted<T>> {
   const original = Client.prototype.query as unknown as QueryFn;
   const statements: string[] = [];
   (Client.prototype as unknown as { query: QueryFn }).query = function (this: Client, ...args: unknown[]) {
-    statements.push(statementOf(args[0]));
+    const statement = statementOf(args[0]);
+    if (!ignore?.test(statement)) statements.push(statement);
     return original.apply(this, args);
   };
   try {

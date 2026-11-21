@@ -62,10 +62,10 @@ export class MarketplaceService {
     });
   }
 
-  /** Served entirely from the snapshot: no database query per request. */
+  /** Candidates always come from the snapshot; only a target newer than the snapshot is read from the DB. */
   async similar(userId: string, jameyaId: string): Promise<Conditional> {
     const { snapshot, viewer } = await this.load(userId);
-    const target = snapshot.byId.get(jameyaId);
+    const target = await this.snapshots.listingOf(snapshot, jameyaId);
     if (!target) throw Errors.notFound('Jameya');
     return conditionalFromInputs([snapshot.contentHash, ...viewerInputs(viewer), 'similar', jameyaId], snapshot.asOf, () => {
       const matches = findSimilar(target, snapshot.listings, (j) => viewer.strategy.score(j, viewer.context));

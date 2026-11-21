@@ -6,6 +6,9 @@ import { checkout, createJameya, createMember, createMembers, Member, reserve } 
 import { Harness, startHarness } from './support/harness';
 import { countQueries } from './support/query-counter';
 
+/** Buffered analytics flushes run on their own timer and may interleave with any measurement. */
+const BACKGROUND = /analytics_events/;
+
 let h: Harness;
 let viewer: Member;
 beforeAll(async () => {
@@ -23,7 +26,7 @@ const get = (path: string, m: Member = viewer) => h.http.get(path).set('Authoriz
 async function queriesOf(path: string, m: Member = viewer): Promise<number> {
   await get(path, m).expect(200);
   await h.app.get(BufferedEventWriter).flush();
-  const counted = await countQueries(() => get(path, m).expect(200));
+  const counted = await countQueries(() => get(path, m).expect(200), BACKGROUND);
   if (process.env.DEBUG_QUERIES) console.error(path, counted.statements);
   return counted.count;
 }
@@ -74,7 +77,7 @@ async function sweepQueries(holds: number): Promise<number> {
   const [jameyaId, members] = await Promise.all([createJameya(h, holds), createMembers(h, holds)]);
   const ids = await Promise.all(members.map(async (m, i) => (await reserve(h, m, jameyaId, i + 1)).body.id as string));
   await h.db.query(`UPDATE reservations SET expires_at = now() - interval '1 minute' WHERE id = ANY($1)`, [ids]);
-  const { result, count } = await countQueries(() => h.app.get(HoldExpiryJob).sweep());
+  const { result, count } = await countQueries(() => h.app.get(HoldExpiryJob).sweep(), BACKGROUND);
   expect(result).toBe(holds);
   return count;
 }
@@ -87,8 +90,9 @@ test('POST /events does no database work on the request path (buffered batch ins
   const jameyaId = await createJameya(h);
   const event = { type: 'impression', jameyaId, position: 1, surface: 'marketplace_list', occurredAt: new Date().toISOString() };
   const send = () => h.http.post('/api/v1/events').set('Authorization', `Bearer ${viewer.token}`).send({ events: Array(50).fill(event) });
-  const { result, count } = await countQueries(() => send());
+  const { result, count } = await countQueries(() => send(), BACKGROUND);
   expect([result.status, result.body.accepted, count]).toEqual([202, 50, 0]);
-  const flush = await countQueries(() => h.app.get(BufferedEventWriter).flush());
-  expect(flush.count).toBe(1);
+  await h.app.get(BufferedEventWriter).flush();
+  const { rows } = await h.db.query<{ n: number }>('SELECT count(*)::int AS n FROM analytics_events WHERE jameya_id = $1', [jameyaId]);
+  expect(rows[0].n).toBe(50); // one batch insert, off the request path
 });
