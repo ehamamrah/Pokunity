@@ -87,8 +87,8 @@ campaigns without a deploy (SQL/admin tool). Active = `now() ∈ [starts_at, end
 
 | Data | Freshness | Mechanism |
 |---|---|---|
-| List / featured | ≤ 5 s (`asOf`) | In-process snapshot (4 s max age) + `Cache-Control: private, max-age=5` |
-| Detail seat map | Live | Direct PostgreSQL read (`no-store`) |
+| List / featured | ≤ 5 s (`asOf`) | Two-tier snapshot cache (L1 in-process ~1 s + L2 Redis ~3 s, single-flight) + ETag/304 + `Cache-Control: private, max-age=5` — see [performance](../performance/backend.md#5-caching) |
+| Detail seat map | ≤ 2 s | Redis cache (2 s), deleted on every committed seat change; never read by the booking path |
 | Booking | Authoritative | Conditional SQL; Redis gate is advisory |
 
 ## 7. Performance at 5,000+ Jameyas

@@ -55,7 +55,7 @@ Step by step for one popular Jameya:
 | PostgreSQL advisory lock | `pg_advisory_xact_lock(member)` | Hold limit cannot be raced | n/a |
 | Redis counter | `GET` gate, `INCRBY` after commit, 10 s rebuild | Cheap rejection when full | Fail open → DB decides |
 | Redis seat lock | `SET NX PX 3000` + owner-checked `DEL` | ≤ 1 in-flight claim per seat | Fail open → row lock serialises |
-| Redis rate limiter | Lua `INCR`+`PEXPIRE` fixed window | ≤ 5 attempts / 10 s / member | Fail open (DB still protected by gate/locks) |
+| Redis rate limiter | Lua sliding-window counter (Redis clock), plus a global per-IP ceiling | ≤ 5 attempts / 10 s / member | Falls back to a per-instance limiter (see [performance](../performance/backend.md#6-rate-limiting)) |
 
 ## 3. Rate limiting and queuing
 

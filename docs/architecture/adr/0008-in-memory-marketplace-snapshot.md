@@ -1,6 +1,6 @@
 # ADR-0008: In-memory marketplace snapshot for ranking
 
-**Status:** Accepted
+**Status:** Accepted — extended by [ADR-0009](0009-two-tier-cache.md) (snapshot moved to a two-tier L1/L2 cache)
 
 ## Context
 `GET /jameyas` ranks 5,000+ Jameyas per member (personal signals, A/B variant) with filters

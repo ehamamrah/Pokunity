@@ -9,6 +9,8 @@
 | [0005](0005-hold-ttl-and-sweeper.md) | 5-minute holds, SQL sweeper with advisory lock (`@nestjs/schedule`, not BullMQ) | Accepted |
 | [0006](0006-kyc-fail-closed-with-cache-and-breaker.md) | KYC: fail closed, cached, circuit breaker | Accepted |
 | [0007](0007-raw-sql-over-orm.md) | `node-postgres` with explicit SQL instead of an ORM | Accepted |
-| [0008](0008-in-memory-marketplace-snapshot.md) | In-memory marketplace snapshot (≤ 5 s) for ranking | Accepted |
+| [0008](0008-in-memory-marketplace-snapshot.md) | In-memory marketplace snapshot (≤ 5 s) for ranking | Accepted, extended by 0009 |
+| [0009](0009-two-tier-cache.md) | Two-tier cache (in-process + Redis) with single-flight | Accepted |
+| [0010](0010-async-event-ingestion.md) | Write-behind buffer for analytics events | Accepted |
 
 Format: Context / Decision / Consequences / Alternatives considered.
