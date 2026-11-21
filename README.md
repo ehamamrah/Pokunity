@@ -11,9 +11,9 @@ docker compose up --build
 
 | Service | URL |
 |---|---|
-| Web app | http://localhost:3000 |
-| API | http://localhost:4000/api/v1 |
-| Health | http://localhost:4000/api/v1/health |
+| Web app | <http://localhost:3000> |
+| API | <http://localhost:4000/api/v1> |
+| Health | <http://localhost:4000/api/v1/health> |
 
 Log in with any demo user (password `Pokunity123!`): `sara@`, `omar@`, `lina@`, `khaled@`, `noura@pokunity.app` — see [what each one demonstrates](docs/api/README.md#seeded-demo-users-password-for-all-pokunity123).
 
@@ -43,6 +43,8 @@ NestJS · PostgreSQL · Redis · Next.js · TanStack Query · Tailwind · Docker
 | Frontend edge cases | [docs/frontend/edge-cases.md](docs/frontend/edge-cases.md) |
 | Develop / test locally | [backend](docs/backend/development.md) · [frontend](docs/frontend/development.md) |
 | Performance (benchmarks, caching, rate limits, circuit breakers) | [backend](docs/performance/backend.md) · [frontend](docs/performance/frontend.md) |
+| Stable caching (ETags, `X-As-Of`, 304s) explained end to end | [docs/performance/caching.md](docs/performance/caching.md) |
+| Sessions & logout (token revocation) | [ADR-0012](docs/architecture/adr/0012-token-revocation.md) · [auth API](docs/api/auth.md) |
 | Operate it / handle incidents | [docs/operations/runbook.md](docs/operations/runbook.md) |
 
 ## The core guarantee in one picture

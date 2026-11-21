@@ -23,6 +23,7 @@ seat, which the product forbids, and it would create regulatory exposure for col
 without an allocation.
 
 Instead we maximise utilisation without overselling:
+
 * short holds (5 min) and a 5 s sweeper return abandoned seats quickly;
 * behavioural penalties for members who let holds expire (hold limit 1);
 * authorize/capture means failed payments release seats immediately (no refund wait);
@@ -36,6 +37,7 @@ unique indexes (see [database](architecture/database.md)). The remaining sources
 external: the provider and our own crashes between commit and side effect.
 
 **Automatic recovery:**
+
 | Divergence | Detector | Resolution |
 |---|---|---|
 | Webhook lost / provider slow | Reconciliation: `AUTHORIZING` > 2 min | Query the intent: authorized → confirm + capture; failed → fail; pending > 10 min or unknown → fail + void |

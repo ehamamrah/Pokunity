@@ -6,14 +6,14 @@ delays, duplicates and missing callbacks (see test tokens in [README](README.md)
 
 ## POST `/api/v1/payments/webhook`
 
-**Headers**
+### Headers
 
 | Header | Notes |
 |---|---|
 | `X-Pokunity-Signature` | Hex HMAC-SHA256 of the **raw** request body using `PAYMENT_WEBHOOK_SECRET` |
 | `Content-Type` | `application/json` |
 
-**Event types**
+### Event types
 
 | `type` | Effect |
 |---|---|
@@ -22,7 +22,8 @@ delays, duplicates and missing callbacks (see test tokens in [README](README.md)
 | `payment.captured` | Payment → `CAPTURED` (ledger entry). |
 | `payment.voided` | Payment → `VOIDED` (ledger entry). |
 
-**Request**
+### Request
+
 ```http
 POST /api/v1/payments/webhook
 X-Pokunity-Signature: 9f2c1b7e0a...
@@ -40,22 +41,25 @@ Content-Type: application/json
 ```
 
 **200 OK** (first delivery)
+
 ```json
 { "received": true, "duplicate": false }
 ```
 
 **200 OK** (same `eventId` delivered again – no side effects)
+
 ```json
 { "received": true, "duplicate": true }
 ```
 
-**Errors**
+### Errors
+
 - `401 INVALID_SIGNATURE` – signature missing/invalid (provider will retry; we never process unsigned events).
 - `400 VALIDATION_ERROR` – malformed payload.
 - `404 NOT_FOUND` is **not** returned for unknown `paymentIntentId`; it is stored as an
   orphan event (`200`, flagged for reconciliation) so the provider stops retrying.
 
-**Edge-case handling summary**
+### Edge-case handling summary
 
 | Scenario | Handling |
 |---|---|

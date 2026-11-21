@@ -31,7 +31,7 @@ flowchart LR
 
 | Signal | Formula | Personal? |
 |---|---|---|
-| `amountMatch` | `1 − |monthly − typical| / typical` (clamped); neutral 0.5 if unknown | yes |
+| `amountMatch` | `1 − \|monthly − typical\| / typical` (clamped); neutral 0.5 if unknown | yes |
 | `durationMatch` | `1 − (min distance to a preferred duration) / 6`; neutral 0.5 if none | yes |
 | `scarcity` | `1 − seatsAvailable / totalSeats` (social proof, urgency) | no |
 | `startingSoon` | 1 if start ≤ 14 days, linear to 0 at 120 days; 0 if started | no |
@@ -79,6 +79,7 @@ duration match). `BEST_MATCH` is part of the treatment experience, so it is not 
 
 `featured_campaigns(jameya_id, campaign, priority, starts_at, ends_at)`. Marketing can schedule
 campaigns without a deploy (SQL/admin tool). Active = `now() ∈ [starts_at, ends_at)`.
+
 * `GET /jameyas/featured`: up to 10 active, **non-full** Jameyas in priority order.
 * In the main list, `featured` is a ranking signal (weight 0.20 control / 0.10 treatment) and a
   badge. It is not a pin, so a featured but poorly matching Jameya does not crowd out relevant ones.
@@ -99,6 +100,7 @@ campaigns without a deploy (SQL/admin tool). Active = `now() ∈ [starts_at, end
 * Memory: about 1 KB per listing, so a few MB per instance.
 
 **Scaling further** (50k–500k Jameyas or many instances):
+
 1. Maintain a `jameya_listing` read model (availability counters updated from seat-change events
    via the outbox) instead of re-aggregating seats.
 2. Two-stage ranking: SQL/search engine pre-filters and orders by a **non-personal base score**

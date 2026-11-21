@@ -3,10 +3,12 @@
 **Status:** Accepted
 
 ## Context
+
 Members need time to pay, but abandoned holds must return seats quickly. Expiry must never
 release a seat whose payment is in flight.
 
 ## Decision
+
 * `expires_at = now() + HOLD_TTL_SECONDS` (300) is set by the database clock at insert.
 * Checkout is valid only if `expires_at > now()` **at the conditional update**, so the
   boundary is decided atomically. A late checkout gets `410 RESERVATION_EXPIRED` even before the sweeper runs.
@@ -20,11 +22,13 @@ release a seat whose payment is in flight.
   `pg_try_advisory_lock` so that only one instance sweeps.
 
 ## Consequences
+
 * A seat can stay `HELD` for up to about 5 s after expiry. The listing tolerates 5 s staleness,
   and booking is authoritative.
 * No extra infrastructure. Horizontal scaling is safe without leader election.
 
 ## Alternatives considered
+
 * **BullMQ repeatable / delayed jobs per hold.** Precise timing, but adds Redis durability as a
   dependency of seat release and a dual write at hold creation.
 * **Redis key expiry notifications.** Not reliable (fire-and-forget pub/sub).

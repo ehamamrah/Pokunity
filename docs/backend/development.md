@@ -1,6 +1,7 @@
 # Backend Development Guide
 
 ## Prerequisites
+
 * Docker (Compose v2). Node 20+ only if you want to run things on the host.
 * From the project root, create your local environment file once:
 
@@ -90,6 +91,7 @@ It mints tokens with the container's `JWT_SECRET` (1,000 logins would trip the 5
 limit and measure bcrypt, not contention) and verifies the results directly in PostgreSQL.
 
 ### What is tested where
+
 | Suite | Covers |
 |---|---|
 | `src/**/reservation-state-machine.spec.ts`, `payment-state-machine.spec.ts` | Lifecycles, reconciliation verdicts, webhook signatures |
@@ -120,7 +122,7 @@ limit and measure bcrypt, not contention) and verifies the results directly in P
 
 ## Layout
 
-```
+```text
 backend/
   migrations/                 forward-only SQL (schema, constraints, guard triggers)
   src/

@@ -28,7 +28,7 @@ show freshness and decide when to refetch. Responses send `Cache-Control: privat
 
 Ranked, personalized, paginated marketplace.
 
-**Query parameters**
+### Query parameters
 
 | Param | Type | Default | Notes |
 |---|---|---|---|
@@ -40,13 +40,15 @@ Ranked, personalized, paginated marketplace.
 | `page` | int | 1 | |
 | `pageSize` | int | 20 | Max 50 |
 
-**Request**
+### Request
+
 ```http
 GET /api/v1/jameyas?sort=recommended&maxMonthly=150000&page=1&pageSize=2
 Authorization: Bearer <jwt>
 ```
 
-**200 OK**
+### 200 OK
+
 ```json
 {
   "data": [
@@ -106,7 +108,8 @@ Authorization: Bearer <jwt>
 
 Up to 10 Jameyas from active marketing campaigns (priority order), excluding full ones.
 
-**200 OK**
+### 200 OK
+
 ```json
 {
   "data": [ { "...": "JameyaSummary (same shape as above)" } ],
@@ -120,13 +123,15 @@ Up to 10 Jameyas from active marketing campaigns (priority order), excluding ful
 
 Jameya detail with the seat map **as seen by the viewer** (restrictions applied).
 
-**Request**
+### Request
+
 ```http
 GET /api/v1/jameyas/5f8a1c3e-2b4d-4e6f-8a9b-0c1d2e3f4a5b
 Authorization: Bearer <jwt>
 ```
 
 **200 OK** (viewer = `lina@pokunity.app`, HIGH risk)
+
 ```json
 {
   "id": "5f8a1c3e-2b4d-4e6f-8a9b-0c1d2e3f4a5b",
@@ -162,7 +167,8 @@ Authorization: Bearer <jwt>
 
 (Seat array truncated for brevity; real response contains all `totalSeats` seats ordered by `seatNumber`.)
 
-**Seat rules**
+### Seat rules
+
 - `HELD` seats may become `AVAILABLE` again when the hold expires. UI should show them as "on hold".
 - `heldByViewer: true` marks the viewer's own hold (UI links to that reservation).
 - `restricted: true` → seat is not reservable by this viewer; UI greys it out with the reason.
@@ -184,13 +190,15 @@ Up to **5** open Jameyas similar to `{id}`, used when a Jameya is full (`409 JAM
 **Similarity** (ranked by the viewer's ranking variant as a tie-breaker): same `durationMonths`
 ± 2, `monthlyAmount` within ± 25 %, then closest `startDate`.
 
-**Request**
+### Request
+
 ```http
 GET /api/v1/jameyas/5f8a1c3e-2b4d-4e6f-8a9b-0c1d2e3f4a5b/similar
 Authorization: Bearer <jwt>
 ```
 
-**200 OK**
+### 200 OK
+
 ```json
 {
   "data": [ { "...": "JameyaSummary (same shape as GET /jameyas)" } ],

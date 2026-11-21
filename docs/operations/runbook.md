@@ -58,7 +58,9 @@ reconciliation confirms after about 2 min). Login is limited to 5/min/IP.
 ## Incidents
 
 ### A. Payment captured but no seat (should be impossible)
+
 *Detect:* ledger has `CAPTURE` but the reservation is not `CONFIRMED` or the seat is not `TAKEN`:
+
 ```sql
 SELECT p.id, p.reservation_id, r.status AS reservation, s.status AS seat
 FROM payments p JOIN ledger_entries l ON l.payment_id = p.id AND l.entry_type = 'CAPTURE'
@@ -66,6 +68,7 @@ LEFT JOIN reservations r ON r.id = p.reservation_id
 LEFT JOIN seats s ON s.reservation_id = p.reservation_id
 WHERE r.status IS DISTINCT FROM 'CONFIRMED' OR s.status IS DISTINCT FROM 'TAKEN';
 ```
+
 *Why it should not happen:* capture is only enqueued in the same transaction that confirmed the seat,
 and triggers forbid leaving `CONFIRMED`/`TAKEN`.
 *Respond:* (1) freeze: stop the worker (`JOBS_ENABLED=false`) if more rows appear; (2) find the
@@ -75,41 +78,53 @@ otherwise refund through the provider console and record it as a compensating le
 follow-up migration (the ledger is append-only); (4) notify the member; (5) post-mortem.
 
 ### B. Outbox `DEAD` (capture or void keeps failing)
+
 Check `last_error`. Fix the cause (credentials, provider outage), then re-arm:
+
 ```sql
 UPDATE payment_outbox SET status='PENDING', attempts=0, next_attempt_at=now() WHERE id = '<id>';
 ```
+
 For a CAPTURE: the seat is already confirmed and funds are authorized; capture before the
 authorization expires (provider-specific, usually 7 days).
 
 ### C. Payments stuck in `AUTHORIZING`
+
 Reconciliation resolves them after 2 min (provider lookup) or fails and voids them after 10 min. If they
 persist, check the reconciliation logs (`payment reconciled`) and the advisory lock holder:
 `SELECT * FROM pg_locks WHERE locktype='advisory';`.
 
 ### D. KYC vendor outage
+
 `/health` shows `kyc: degraded`. Members with a verification cached in the last 24 h keep booking.
 No action beyond vendor escalation. Do **not** switch to fail-open (regulatory).
 
 ### E. Redis outage
+
 Booking keeps working (gate and rate limiter fail open; PostgreSQL decides). Expect higher DB load
 under contention, and login/reservation rate limits are not enforced. Restore Redis; counters
 rebuild within 10 s and the KYC cache warms on demand.
 
 ### F0. Caching questions ("my change does not show")
+
 Marketplace lists are ≤ 5 s stale by design; `X-As-Of` shows when the server last verified them.
 ETags change only when visible content changes ([caching.md](../performance/caching.md)). To force a
 snapshot rebuild: `redis-cli DEL mkt:snapshot:v3` (instances also drop their 1 s L1 copy on expiry).
 
 ### F. Seats appear unavailable but are free (`JAMEYA_FULL` while the list shows seats)
+
 The gate counter drifted. It self-corrects within 10 s. To force it: `redis-cli DEL gate:avail:<jameyaId>`.
 
 ### G. Compromised member account: revoke all sessions
+
 Revocation must work even if the member cannot log in (stolen credentials).
+
 1. Revoke every token of the member (effective immediately on this instance, ≤ 5 s on others):
+
    ```sql
    UPDATE users SET token_version = token_version + 1 WHERE email = 'member@example.com' RETURNING id, token_version;
    ```
+
    (Equivalent to the member calling `POST /auth/logout {"allSessions": true}`.)
 2. Force a password reset through the identity process (out of scope of this API) so that the attacker
    cannot simply log in again.
@@ -123,6 +138,7 @@ If Redis is down, revoked-token checks cannot run: reads continue, reserve/check
 `503 SERVICE_UNAVAILABLE` until Redis returns (fail closed), and logouts escalate to all sessions.
 
 ## Reconciliation queries
+
 ```sql
 -- Seat/reservation agreement (expect 0 rows)
 SELECT s.* FROM seats s LEFT JOIN reservations r ON r.id = s.reservation_id
@@ -136,6 +152,7 @@ HAVING string_agg(entry_type, ',' ORDER BY id) NOT IN ('AUTHORIZE,CAPTURE','AUTH
 ```
 
 ## Scaling notes
+
 * API replicas are stateless; jobs are cluster-safe (advisory locks / SKIP LOCKED). To split jobs
   into a worker: run the same image with `JOBS_ENABLED=false` for API replicas and `true` for one worker.
 * Keep `replicas × DB_POOL_MAX` below PostgreSQL `max_connections` (or add PgBouncer, transaction mode).

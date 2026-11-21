@@ -1,0 +1,13 @@
+// Markdown lint for README.md and docs/. Run: npx markdownlint-cli2 "README.md" "docs/**/*.md"
+{
+  "config": {
+    "default": true,
+    // Wide tables and long sentences render fine on GitHub; hard-wrapping them hurts diffs.
+    "MD013": false,
+    // Compact tables (|---|) are used throughout; aligned pipes would bloat every diff.
+    "MD060": false,
+    // API docs repeat "Request" / "200 OK" under each endpoint; only siblings must be unique.
+    "MD024": { "siblings_only": true }
+  },
+  "ignores": ["**/node_modules/**", "explanations.md"]
+}

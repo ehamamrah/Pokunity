@@ -32,6 +32,7 @@ All entries below are closed. The contract (`README.md`, endpoint docs, `openapi
 ## Frontend (GAP-FE)
 
 ### GAP-FE-001: No analytics surface for the reservation/checkout page
+
 - **Status:** resolved (v1.1)
 - **Gap:** `AnalyticsEvent.surface` is one of `marketplace_list`, `featured_carousel`, `jameya_detail`.
   `checkout_started` happens on `/reservations/{id}`, which fits none of these.
@@ -40,6 +41,7 @@ All entries below are closed. The contract (`README.md`, endpoint docs, `openapi
 - **Request:** add `checkout` (or `reservation_checkout`) to the `surface` enum. Backward compatible.
 
 ### GAP-FE-002: `experiment` is not echoed on detail or reservation responses
+
 - **Status:** resolved (v1.1)
 - **Gap:** `meta.experiment` exists only on `GET /jameyas`. Detail and checkout events have no list
   context when opened from a link.
@@ -48,6 +50,7 @@ All entries below are closed. The contract (`README.md`, endpoint docs, `openapi
 - **Request (optional):** return `experiment` on `GET /jameyas/{id}` for deep links. Backward compatible.
 
 ### GAP-FE-003: No "similar Jameyas" endpoint for `JAMEYA_FULL`
+
 - **Status:** resolved (v1.1)
 - **Gap:** `JAMEYA_FULL` says "suggest similar Jameyas", but no endpoint returns them.
 - **Interpretation:** the UI links to `GET /jameyas` filtered to the same `monthlyAmount`, with
@@ -55,6 +58,7 @@ All entries below are closed. The contract (`README.md`, endpoint docs, `openapi
 - **Request (optional):** `GET /jameyas/{id}/similar`, ranked and capped at 5. Backward compatible.
 
 ### GAP-FE-004: Unbounded `PAYMENT_PENDING` with no expected resolution time
+
 - **Status:** resolved (v1.1)
 - **Gap:** `tok_timeout` resolves through reconciliation after about 10 minutes, but the reservation
   carries no hint of when a result is expected. The UI can only say "still confirming".
@@ -64,6 +68,7 @@ All entries below are closed. The contract (`README.md`, endpoint docs, `openapi
   state a realistic expectation. Backward compatible.
 
 ### GAP-FE-005: Payment status after a decline is not specified
+
 - **Status:** resolved (v1.1)
 - **Gap:** on `payment.failed` the contract sets the reservation to `FAILED` (`PAYMENT_DECLINED`) and
   says the authorization is voided. It does not say whether `payment.status` becomes `FAILED` or
@@ -74,6 +79,7 @@ All entries below are closed. The contract (`README.md`, endpoint docs, `openapi
   doc.
 
 ### GAP-FE-006: `error.details` keys are not specified per code
+
 - **Status:** resolved (v1.1)
 - **Gap:** `details` is an untyped object. The frontend depends on `details.reservationId`
   (`ACTIVE_RESERVATION_EXISTS`), `details.seatNumber` (`SEAT_UNAVAILABLE`) and `details.status`
@@ -84,12 +90,14 @@ All entries below are closed. The contract (`README.md`, endpoint docs, `openapi
   discriminated schemas), so both sides can rely on them.
 
 ### GAP-FE-007: `HOLD_LIMIT_REACHED` does not say the limit
+
 - **Status:** resolved (v1.1)
 - **Gap:** the message needs `maxActiveHolds`, which is on `/me`, not in the error.
 - **Interpretation:** the message is generic ("the maximum number of seats on hold").
 - **Request:** include `details.maxActiveHolds` and `details.activeHolds` on `HOLD_LIMIT_REACHED`.
 
 ### GAP-FE-008: Idempotent replay of error responses is not stated
+
 - **Status:** resolved (v1.1)
 - **Gap:** the README says a completed request's response is stored and replayed. It is not explicit
   that business errors (for example, a `409 SEAT_UNAVAILABLE`) are stored too.
@@ -98,6 +106,7 @@ All entries below are closed. The contract (`README.md`, endpoint docs, `openapi
 - **Request:** state explicitly whether 4xx business errors are stored and replayed.
 
 ### GAP-FE-009: No way to explain a viewer block that is not a RestrictionReason
+
 - **Status:** resolved (v1.1)
 - **Gap:** `viewer.canReserve` can be `false` for a hold limit with `blockingReason: null` and no
   `activeReservationId`. The UI cannot explain it without `/me`.
@@ -107,6 +116,7 @@ All entries below are closed. The contract (`README.md`, endpoint docs, `openapi
   limits should be used for this case.
 
 ### GAP-FE-010: Logout and token revocation
+
 - **Status:** resolved (v1.1)
 - **Gap:** there is no `POST /auth/logout`. The JWT is stateless and cannot be revoked before its
   one-hour TTL.
@@ -115,6 +125,7 @@ All entries below are closed. The contract (`README.md`, endpoint docs, `openapi
   regulated product.
 
 ### GAP-FE-011: `GET /reservations` is unbounded
+
 - **Status:** resolved (v1.1)
 - **Gap:** the list has no pagination, so a long-lived account grows without bound.
 - **Interpretation:** the UI shows the full list, which is acceptable at the current volumes.
@@ -125,6 +136,7 @@ All entries below are closed. The contract (`README.md`, endpoint docs, `openapi
 Interpretations chosen by the backend where the contract is silent. Each is backward compatible.
 
 ### GAP-BE-001: `tok_timeout` resolution path
+
 - **Status:** resolved (v1.1)
 - **Gap:** README says reconciliation "resolves (queries provider, voids if needed)" without fixing the outcome.
 - **Interpretation:** the simulator **authorizes** the intent but never sends the webhook (a lost
@@ -133,6 +145,7 @@ Interpretations chosen by the backend where the contract is silent. Each is back
   covered by integration tests (`tok_slow` with an aged payment).
 
 ### GAP-BE-002: Malformed ids and out-of-range seats
+
 - **Status:** resolved (v1.1)
 - **Gap:** behaviour for a non-UUID `{id}` and for `seatNumber > totalSeats` is unspecified.
 - **Interpretation:** a non-UUID path id returns `404 NOT_FOUND` (the resource cannot exist); a
@@ -140,6 +153,7 @@ Interpretations chosen by the backend where the contract is silent. Each is back
   that fail type validation return `400 VALIDATION_ERROR`.
 
 ### GAP-BE-003: `SEAT_UNAVAILABLE` from the single-flight gate
+
 - **Status:** resolved (v1.1)
 - **Gap:** step 6 of the reservation checks names only `JAMEYA_FULL`.
 - **Interpretation:** when another request is already claiming the same seat, the gate answers
@@ -147,6 +161,7 @@ Interpretations chosen by the backend where the contract is silent. Each is back
   client action as a lost DB claim.
 
 ### GAP-BE-004: Health `checks.kyc` and analytics extras
+
 - **Status:** resolved (v1.1)
 - **Gap/notes:** `kyc` is `degraded` while the KYC circuit breaker is not CLOSED. `POST /events`
   accepts an empty `events` array (`{accepted: 0}`) and additionally accepts `surface: checkout`
@@ -168,6 +183,7 @@ Interpretations chosen by the backend where the contract is silent. Each is back
 | GAP-FE-011 | The backend caps `GET /reservations` at the 200 most recent. Pagination is recommended as an additive change. |
 
 ### GAP-FE-012: The BFF returns 504 for backend timeouts, which the contract does not list
+
 - **Status:** resolved (v1.1)
 - **Gap:** the status table has no 504. A backend that does not answer within 10 s is reported by
   the BFF as `504` with `INTERNAL_ERROR`.
@@ -176,6 +192,7 @@ Interpretations chosen by the backend where the contract is silent. Each is back
 - **Request:** add `504` (or specify that gateway timeouts use 503) to the README status table.
 
 ### GAP-FE-013: ETags on marketplace and profile reads change on every response
+
 - **Status:** resolved (v1.1)
 - **Gap:** `GET /jameyas` changes its `asOf` and `GET /me` changes `kycCheckedAt` on every call, so the
   ETag changes too. Conditional GET (`If-None-Match`) therefore rarely returns 304.

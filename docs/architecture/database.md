@@ -9,6 +9,7 @@ PostgreSQL 16 is the system of record. The schema lives in
 | `0002_performance.sql` | `AUTHORIZE` outbox command; denormalised `jameyas.total_seats/min_fee/max_fee` (statement trigger on seat insert, row trigger on fee change only); covering index for active holds |
 | `0003_token_version.sql` | `users.token_version` (v1.1 "log out everywhere"; every JWT carries `ver`) |
 | `0004_seat_holder_index.sql` | `seats_held_by_holder_idx (holder_user_id) WHERE status='HELD'`: index-only count of a viewer's active holds (`viewer.blockingReason = HOLD_LIMIT`) |
+
 Migrations are forward-only, run in one transaction per file, and are serialised across instances
 by an advisory lock (`backend/src/shared/database/migrator.ts`). They run automatically on
 container start, followed by the idempotent seed.

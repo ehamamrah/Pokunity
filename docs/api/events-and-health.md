@@ -5,7 +5,8 @@
 Fire-and-forget marketplace analytics used to evaluate ranking A/B experiments
 (impressions, clicks, funnel steps). Batched by the client (flush every 5 s or 20 events).
 
-**Request**
+### Request
+
 ```http
 POST /api/v1/events
 Authorization: Bearer <jwt>
@@ -41,7 +42,8 @@ Content-Type: application/json
 
 Max 50 events per request. Server-side funnel events (`reservation_created`, `reservation_confirmed`) are recorded by the backend itself.
 
-**202 Accepted**
+### 202 Accepted
+
 ```json
 { "accepted": 2 }
 ```
@@ -54,7 +56,8 @@ Max 50 events per request. Server-side funnel events (`reservation_created`, `re
 
 No auth. Used by Docker healthchecks.
 
-**200 OK**
+### 200 OK
+
 ```json
 {
   "status": "ok",

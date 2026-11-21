@@ -24,7 +24,7 @@ flowchart LR
 
 ## 2. Folder structure
 
-```
+```text
 frontend/
   app/                     Thin App Router layer: pages compose features, nothing else
     (app)/                 Signed-in pages (route group, shares header + sign-out)

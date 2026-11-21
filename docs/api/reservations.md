@@ -64,7 +64,8 @@ therefore no refund.
 
 Places a temporary hold (default **5 minutes**) on a specific seat.
 
-**Request**
+### Request
+
 ```http
 POST /api/v1/reservations
 Authorization: Bearer <jwt>
@@ -77,6 +78,7 @@ Content-Type: application/json
 **201 Created** → `Reservation` with `status: "HELD"` (see object above).
 
 **Checks, in order** (fail fast, cheapest first):
+
 1. Rate limit: 5 requests / 10 s / user → `429 RATE_LIMITED`
 2. Idempotency key handling (see [README](README.md#idempotency))
 3. Eligibility: KYC (cached, circuit-breaker protected) → `403 KYC_REQUIRED` / `503 KYC_UNAVAILABLE`
@@ -85,7 +87,8 @@ Content-Type: application/json
 6. Fast-fail availability gate (Redis counter) → `409 JAMEYA_FULL`
 7. Atomic seat claim in PostgreSQL (conditional update) → `409 SEAT_UNAVAILABLE`
 
-**409 example**
+### 409 example
+
 ```json
 {
   "error": {
@@ -109,7 +112,8 @@ Lists the viewer's reservations, newest first.
 | `page` | int, default 1 | v1.1 |
 | `pageSize` | int, default 20, max 50 | v1.1 |
 
-**200 OK**
+### 200 OK
+
 ```json
 {
   "data": [ { "...": "Reservation" } ],
@@ -127,6 +131,7 @@ Authoritative status (never cached). **Polling target** during checkout: poll ev
 until status is terminal; back off to 3 s after 15 s.
 
 **200 OK** (after successful payment)
+
 ```json
 {
   "id": "c2d3e4f5-a6b7-4c8d-9e0f-1a2b3c4d5e6f",
@@ -154,7 +159,8 @@ until status is terminal; back off to 3 s after 15 s.
 Moves a `HELD` reservation to `PAYMENT_PENDING` and asks the provider to **authorize** the fee.
 Result arrives asynchronously via the provider webhook; client polls `GET /reservations/{id}`.
 
-**Request**
+### Request
+
 ```http
 POST /api/v1/reservations/c2d3e4f5-a6b7-4c8d-9e0f-1a2b3c4d5e6f/checkout
 Authorization: Bearer <jwt>
@@ -164,7 +170,8 @@ Content-Type: application/json
 { "paymentMethodToken": "tok_success" }
 ```
 
-**202 Accepted**
+### 202 Accepted
+
 ```json
 {
   "id": "c2d3e4f5-a6b7-4c8d-9e0f-1a2b3c4d5e6f",
@@ -179,7 +186,8 @@ Content-Type: application/json
 
 **200 OK** – only for zero-fee seats: `Reservation` with `status: "CONFIRMED"`, `payment: null`.
 
-**Errors**
+### Errors
+
 - `410 RESERVATION_EXPIRED` – hold expired before checkout (checked atomically).
 - `409 INVALID_STATE` – not `HELD` (e.g. already `PAYMENT_PENDING`). `details.status` = current status.
   A retried checkout with the **same** Idempotency-Key replays the original 202 instead.

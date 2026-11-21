@@ -4,7 +4,8 @@
 
 Exchanges email/password for a JWT. No auth required.
 
-**Request**
+### Request
+
 ```http
 POST /api/v1/auth/login
 Content-Type: application/json
@@ -12,7 +13,8 @@ Content-Type: application/json
 { "email": "sara@pokunity.app", "password": "Pokunity123!" }
 ```
 
-**200 OK**
+### 200 OK
+
 ```json
 {
   "accessToken": "<jwt>",
@@ -35,7 +37,8 @@ Revokes the caller's session. Every access token carries a unique `jti`; logout 
 **denylist** (Redis, TTL = the token's remaining lifetime), so the token is rejected with
 `401 UNAUTHORIZED` from then on — even if it was copied elsewhere.
 
-**Request**
+### Request
+
 ```http
 POST /api/v1/auth/logout
 Authorization: Bearer <jwt>
@@ -54,7 +57,8 @@ The body is optional (`{}` or no body = this session only).
 
 **401** `UNAUTHORIZED` (no/invalid token) · **429** `RATE_LIMITED`
 
-**Notes**
+### Notes
+
 - Revocation is checked on every authenticated request. If the denylist store is unavailable, the
   server still enforces the member's token version (`allSessions` logouts) from PostgreSQL and
   fails **closed** for tokens it cannot verify only on money-moving endpoints (reserve, checkout).
@@ -67,13 +71,15 @@ The body is optional (`{}` or no body = this session only).
 Returns the viewer's profile, eligibility, and limits. The frontend uses this to decide
 whether to show KYC prompts and how many holds remain.
 
-**Request**
+### Request
+
 ```http
 GET /api/v1/me
 Authorization: Bearer <jwt>
 ```
 
-**200 OK**
+### 200 OK
+
 ```json
 {
   "id": "0b7d2f1e-6f52-4c38-9a8e-3f1a2b4c5d6e",

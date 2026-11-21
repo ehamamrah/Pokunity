@@ -31,7 +31,7 @@ Checks run in the contract order, cheapest first:
 
 | # | Check | Where | Result |
 |---|---|---|---|
-| 1 | Rate limit 5 / 10 s / member (Redis, fixed window) | `RateLimitGuard` | `429` + `Retry-After` |
+| 1 | Rate limit 5 / 10 s / member (Redis sliding window, local fallback) | `RateLimitGuard` | `429` + `Retry-After` |
 | 2 | Idempotency key (claim / replay / in-progress / reused) | `IdempotencyInterceptor` | replay, `409`, `422`, `400` |
 | 3 | KYC verified (cache → breaker → stale-if-error) | `KycVerifiedHandler` | `403 KYC_REQUIRED`, `503 KYC_UNAVAILABLE` |
 | 4 | One active hold per Jameya; ≤ `maxActiveHolds` (3, or 1 after ≥ 3 expired holds) | `SingleActiveReservationHandler`, `HoldLimitHandler` | `409` |

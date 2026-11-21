@@ -67,6 +67,7 @@ Step by step for one popular Jameya:
   balancer/ingress as a circuit for the whole API.
 
 ### Scale-up option: virtual waiting room
+
 For flash sales (for example 50,000 members for a celebrity Jameya at 20:00), put a **virtual
 waiting room** in front of `POST /reservations` for that Jameya only:
 
@@ -138,7 +139,7 @@ Single API instance, DB pool 20.
 
 **Run 1: cold KYC cache** (first booking of each member triggers a simulated KYC call, 40–160 ms):
 
-```
+```text
 === 1000 users -> 1 Jameya (20 seats), mode=spread ===
 outcome                                count
 201 HELD                                   20
@@ -175,7 +176,7 @@ invariants:
 
 **Run 2: warm KYC cache:**
 
-```
+```text
 === 1000 users -> 1 Jameya (20 seats), mode=spread ===
 201 HELD                                   20
 409 SEAT_UNAVAILABLE                      980
@@ -199,6 +200,7 @@ Docker) ran spread mode in 915 ms (p99 850 ms) and same mode in 693 ms (p99 671 
 double bookings.
 
 ### Reading the results
+
 * **Zero double bookings** in every run: exactly 20 holds for 20 seats (spread) and exactly 1 for
   one seat (same), confirmed against PostgreSQL, with no orphan HELD seats.
 * **Every seat was sold** in spread mode. The fast-fail mechanisms did not strand inventory.
@@ -212,6 +214,7 @@ double bookings.
   API instances are stateless, and the gate and locks are shared in Redis.
 
 ### Related integration tests
+
 `backend/test/booking-concurrency.e2e-spec.ts`: 50 concurrent members on one seat through the API;
 30 concurrent raw DB claims **bypassing Redis** (proves the DB alone is sufficient); the partial
 unique index; concurrent hold-limit enforcement.

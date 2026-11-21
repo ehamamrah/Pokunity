@@ -3,7 +3,7 @@
 The backend is a **modular monolith**: one deployable, several modules with hard boundaries.
 Each module lives in `backend/src/modules/<name>/` and follows the same layering:
 
-```
+```text
 <module>/
   api/             controllers + request DTOs (HTTP adapter)
   application/     use cases / application services / jobs (orchestration, transactions)
@@ -36,6 +36,7 @@ make the import rules mechanical.
 ## Catalogue
 
 ### `shared` (kernel, not a business module)
+
 Config validation (`zod`), `Database` (pool + `transaction()`), `RedisService`, `Clock`, error
 model and contract exception filter, JSON logger + request context, Redis rate limiter + guard,
 `JobRunner` (overlap and cluster-exclusive execution), timeout helper, `BreakerRegistry` +
@@ -43,6 +44,7 @@ model and contract exception filter, JSON logger + request context, Redis rate l
 ETags, `X-As-Of`, 304; see [caching](../performance/caching.md)), `@SessionPolicy` metadata.
 
 ### `auth`
+
 | | |
 |---|---|
 | Responsibility | Login (bcrypt), JWT issue/verify (`jti`, `ver`), global `JwtAuthGuard` (`@Public()` opt-out, `@SessionPolicy('strict' \| 'allow-revoked')`), logout: Redis jti denylist + token versions ([ADR-0012](adr/0012-token-revocation.md)). |
@@ -52,6 +54,7 @@ ETags, `X-As-Of`, 304; see [caching](../performance/caching.md)), `@SessionPolic
 | Endpoints | `POST /auth/login` (5/min/IP + 10/15 min/email), `POST /auth/logout` (10/min/member) |
 
 ### `users`
+
 | | |
 |---|---|
 | Responsibility | Profile and preferences, behavioural counters, risk tier, **KYC resolution** (port + simulator adapter + Redis cache + circuit breaker + single-flight), hold-limit and risk policies. |
@@ -60,6 +63,7 @@ ETags, `X-As-Of`, 304; see [caching](../performance/caching.md)), `@SessionPolic
 | Depends on | shared |
 
 ### `catalog`
+
 | | |
 |---|---|
 | Responsibility | Jameyas, seats, featured campaigns; ≤ 5 s in-memory marketplace snapshot; ranking (A/B strategies), badges, filters, sorts; viewer-specific seat map; **seat inventory mutations**; Redis availability gate and its rebuild job. |
@@ -69,6 +73,7 @@ ETags, `X-As-Of`, 304; see [caching](../performance/caching.md)), `@SessionPolic
 | Endpoints | `GET /jameyas`, `GET /jameyas/featured`, `GET /jameyas/{id}`, `GET /jameyas/{id}/similar` (all conditional: stable ETag + `X-As-Of`) |
 
 ### `reservations`
+
 | | |
 |---|---|
 | Responsibility | Reservation lifecycle (state machine), eligibility chain, create / checkout / cancel use cases, expiry sweeper; implements `ReservationSettlement` for payments. |
@@ -78,6 +83,7 @@ ETags, `X-As-Of`, 304; see [caching](../performance/caching.md)), `@SessionPolic
 | Endpoints | `POST/GET /reservations` (GET paginated: `page`, `pageSize` ≤ 50, `meta.total`), `GET/DELETE /reservations/{id}`, `POST /reservations/{id}/checkout`. Reserve and checkout are `@SessionPolicy('strict')`; GETs are conditional (ETag + `X-As-Of`). |
 
 ### `payments`
+
 | | |
 |---|---|
 | Responsibility | Payment records, `PaymentGateway` port + **Payment Provider Simulator** adapter, HMAC webhook intake, exactly-once event processing, append-only ledger, transactional outbox relay (capture/void), reconciliation. |
@@ -87,6 +93,7 @@ ETags, `X-As-Of`, 304; see [caching](../performance/caching.md)), `@SessionPolic
 | Endpoints | `POST /payments/webhook` (signature-guarded, public) |
 
 ### `idempotency`
+
 | | |
 |---|---|
 | Responsibility | Contract idempotency semantics for mutating booking endpoints (claim, replay, in-progress, key reuse, crash takeover via lease). |
@@ -94,6 +101,7 @@ ETags, `X-As-Of`, 304; see [caching](../performance/caching.md)), `@SessionPolic
 | Tables | `idempotency_keys` |
 
 ### `analytics`
+
 | | |
 |---|---|
 | Responsibility | Deterministic A/B assignment (`sha256(key:userId)`), client event ingestion (batch insert), server funnel events. |
@@ -102,6 +110,7 @@ ETags, `X-As-Of`, 304; see [caching](../performance/caching.md)), `@SessionPolic
 | Endpoints | `POST /events` |
 
 ### `audit`
+
 | | |
 |---|---|
 | Responsibility | Append-only audit trail written **inside** the business transaction. |
@@ -109,8 +118,10 @@ ETags, `X-As-Of`, 304; see [caching](../performance/caching.md)), `@SessionPolic
 | Tables | `audit_log` (UPDATE / DELETE / TRUNCATE rejected by trigger) |
 
 ### `account` (composition only)
+
 `GET /me` combines `UsersFacade` (profile, KYC, limits) and `ReservationsFacade` (active holds).
 Keeping this read model outside `users` avoids a `users → reservations` cycle. Owns no tables.
 
 ### `health`
+
 `GET /health`: database and Redis pings, KYC breaker state (`degraded` never fails the probe).

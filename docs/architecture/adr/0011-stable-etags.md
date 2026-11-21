@@ -3,6 +3,7 @@
 **Status:** Accepted (contract v1.1)
 
 ## Context
+
 v1.0 marketplace responses carried a weak ETag computed from the full serialised body. Every body
 contains `asOf`, which changes whenever the ≤ 5 s snapshot is rebuilt, so the ETag changed on every
 refresh even when nothing visible had changed. Clients revalidating after `max-age=5` practically never
@@ -10,6 +11,7 @@ received `304`. `/me` and reservation reads had no ETag. Computing an ETag by se
 a large body on every request is also wasteful when the answer is "not modified".
 
 ## Decision
+
 * An ETag changes **iff something the member sees changes**. Volatile timestamps are excluded from
   fingerprints and returned in a new `X-As-Of` header (on 200 and 304).
 * **Input-derived ETags** for marketplace reads (`/jameyas`, `/featured`, `/similar`): the snapshot
@@ -25,6 +27,7 @@ a large body on every request is also wasteful when the answer is "not modified"
   304). Handlers return a `Conditional { etag, asOf, render() }`.
 
 ## Consequences
+
 * Revalidation now yields 304s (detail 12/12, `/me` 12/12, list 7/12 under live churn vs 0/12 before),
   saving 54–92% of bytes and the client-side parse/render.
 * Correctness depends on listing **every** ranking input in the list fingerprint. New personal inputs
@@ -34,6 +37,7 @@ a large body on every request is also wasteful when the answer is "not modified"
   limiting and the viewer lookup still run.
 
 ## Alternatives considered
+
 * **Strip volatile fields with a JSON replacer, then hash every response.** Correct but does all the
   rendering work even for 304s.
 * **Row versions / `max(updated_at)` per endpoint.** Cheaper, but easy to get wrong (payments,
