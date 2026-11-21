@@ -42,6 +42,7 @@ NestJS · PostgreSQL · Redis · Next.js · TanStack Query · Tailwind · Docker
 | Frontend architecture | [docs/frontend/architecture.md](docs/frontend/architecture.md) |
 | Frontend edge cases | [docs/frontend/edge-cases.md](docs/frontend/edge-cases.md) |
 | Develop / test locally | [backend](docs/backend/development.md) · [frontend](docs/frontend/development.md) |
+| Performance (benchmarks, caching, rate limits, circuit breakers) | [backend](docs/performance/backend.md) · [frontend](docs/performance/frontend.md) |
 | Operate it / handle incidents | [docs/operations/runbook.md](docs/operations/runbook.md) |
 
 ## The core guarantee in one picture
