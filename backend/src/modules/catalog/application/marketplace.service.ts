@@ -67,10 +67,20 @@ export class MarketplaceService {
     const { snapshot, viewer } = await this.load(userId);
     const target = await this.snapshots.listingOf(snapshot, jameyaId);
     if (!target) throw Errors.notFound('Jameya');
-    return conditionalFromInputs([snapshot.contentHash, ...viewerInputs(viewer), 'similar', jameyaId], snapshot.asOf, () => {
-      const matches = findSimilar(target, snapshot.listings, (j) => viewer.strategy.score(j, viewer.context));
+    const inputs = [snapshot.contentHash, ...viewerInputs(viewer), 'similar', jameyaId];
+    return conditionalFromInputs(inputs, snapshot.asOf, () => {
+      const matches = this.memo(inputs.join('|'), () => findSimilar(target, snapshot.listings, (j) => viewer.strategy.score(j, viewer.context)));
       return { data: matches.map((j) => this.present(j, viewer)), meta: { asOf: snapshot.asOf.toISOString(), experiment: viewer.experiment } };
     });
+  }
+
+  /** Memoises an ordered result for the lifetime of a snapshot version (keys contain the content hash). */
+  private memo(key: string, compute: () => JameyaListing[]): JameyaListing[] {
+    const cached = this.rankedCache.get(key);
+    if (cached) return cached;
+    const value = compute();
+    this.rankedCache.set(key, value);
+    return value;
   }
 
   present(j: JameyaListing, viewer: ViewerRanking): JameyaSummary {
@@ -84,11 +94,7 @@ export class MarketplaceService {
 
   private rankedFor(snapshot: CatalogSnapshot, viewer: ViewerRanking, q: ListQuery, queryKey: string): JameyaListing[] {
     const key = [snapshot.version, ...viewerInputs(viewer), queryKey].join('|');
-    const cached = this.rankedCache.get(key);
-    if (cached) return cached;
-    const ranked = this.rank(snapshot.listings.filter(buildFilterSpec(q)), viewer, q.sort);
-    this.rankedCache.set(key, ranked);
-    return ranked;
+    return this.memo(key, () => this.rank(snapshot.listings.filter(buildFilterSpec(q)), viewer, q.sort));
   }
 
   /** Only the recommended sort needs scores; other sorts use their comparator directly. */
