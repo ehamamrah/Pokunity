@@ -13,7 +13,7 @@ export const queryKeys = {
   },
   reservations: {
     lists: () => ['reservations', 'list'] as const,
-    list: (statuses: readonly string[]) => ['reservations', 'list', statuses] as const,
+    list: (page: number, pageSize: number) => ['reservations', 'list', page, pageSize] as const,
     detail: (id: string) => ['reservations', 'detail', id] as const,
   },
 } as const;

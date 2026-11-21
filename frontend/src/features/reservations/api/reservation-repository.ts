@@ -16,10 +16,18 @@ export async function fetchReservation(id: string): Promise<Reservation> {
   return data;
 }
 
-export async function fetchReservations(statuses: readonly ReservationStatus[] = []): Promise<Reservation[]> {
-  const { data } = await apiClient.get('/reservations', reservationListSchema, { query: { status: [...statuses] } });
-  return data.data;
+export interface ReservationPage {
+  data: Reservation[];
+  meta: { page: number; pageSize: number; total: number };
 }
+
+/** v1.1: one page of the viewer's reservations, newest first. */
+export async function fetchReservations(page = 1, pageSize = RESERVATION_PAGE_SIZE, statuses: readonly ReservationStatus[] = []): Promise<ReservationPage> {
+  const { data } = await apiClient.get('/reservations', reservationListSchema, { query: { status: [...statuses], page, pageSize } });
+  return data;
+}
+
+export const RESERVATION_PAGE_SIZE = 20;
 
 export function checkoutReservation(
   id: string,
