@@ -54,3 +54,10 @@ it('forwards If-None-Match so the backend can answer 304 for unchanged data', ()
   const request = new Request('http://localhost:3000/api/v1/jameyas', { headers: { 'If-None-Match': '"abc"' } });
   expect(buildUpstreamHeaders(request, 'jwt', 'req-8').get('if-none-match')).toBe('"abc"');
 });
+
+it('relays X-As-Of, ETag and Cache-Control so the browser can revalidate', () => {
+  const relayed = relayHeaders(new Headers({ 'X-As-Of': '2026-11-21T10:00:09.000Z', ETag: 'W/"abc"', 'Cache-Control': 'private, no-cache' }));
+  expect(relayed.get('x-as-of')).toBe('2026-11-21T10:00:09.000Z');
+  expect(relayed.get('etag')).toBe('W/"abc"');
+  expect(relayed.get('cache-control')).toBe('private, no-cache');
+});

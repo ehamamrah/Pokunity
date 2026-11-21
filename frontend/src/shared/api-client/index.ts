@@ -4,3 +4,4 @@ export * from './envelope';
 export * from './instance';
 export * from './retry';
 export * from './transport';
+export * from './freshness';

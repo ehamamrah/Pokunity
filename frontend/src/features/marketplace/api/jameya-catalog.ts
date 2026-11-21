@@ -1,5 +1,5 @@
 import { infiniteQueryOptions, keepPreviousData, queryOptions, type QueryClient } from '@tanstack/react-query';
-import { apiClient, type ApiClient } from '@/shared/api-client';
+import { apiClient, withMetaAsOf, withTopLevelAsOf, type ApiClient } from '@/shared/api-client';
 import { TIMING } from '@/shared/config/timing';
 import { featuredListSchema, jameyaDetailSchema, jameyaListSchema } from '@/shared/contract';
 import { queryKeys } from '@/shared/query';
@@ -14,18 +14,18 @@ export const JAMEYA_PAGE_SIZE = 20;
  * prefetch with the same key and the same function the browser will use (see server/prefetch).
  */
 export async function fetchJameyaPage(filters: MarketplaceFilters, page: number, client: ApiClient = apiClient): Promise<JameyaListPage> {
-  const { data } = await client.get('/jameyas', jameyaListSchema, { query: toListQuery(filters, page, JAMEYA_PAGE_SIZE) });
-  return data;
+  const { data, headers } = await client.get('/jameyas', jameyaListSchema, { query: toListQuery(filters, page, JAMEYA_PAGE_SIZE) });
+  return withMetaAsOf(data, headers);
 }
 
 export async function fetchFeatured(client: ApiClient = apiClient): Promise<FeaturedPage> {
-  const { data } = await client.get('/jameyas/featured', featuredListSchema);
-  return data;
+  const { data, headers } = await client.get('/jameyas/featured', featuredListSchema);
+  return withMetaAsOf(data, headers);
 }
 
 export async function fetchJameyaDetail(id: string, client: ApiClient = apiClient) {
-  const { data } = await client.get(`/jameyas/${id}`, jameyaDetailSchema);
-  return data;
+  const { data, headers } = await client.get(`/jameyas/${id}`, jameyaDetailSchema);
+  return withTopLevelAsOf(data, headers);
 }
 
 /** Ranked list. `keepPreviousData` keeps the old results on screen while a filter change loads. */
