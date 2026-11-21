@@ -37,7 +37,7 @@ The real improvement is in what happens after the HTML arrives, which Lighthouse
 | Per-card RSC prefetch requests on `/` | 2 (one per visible card) | **0** |
 | Requests to `/favicon.ico` | 404 | 200 (`app/icon.svg`) |
 | Server-rendered `/` payload | No data in HTML | First page of Jameyas in HTML |
-| First page of Jameyas, bytes on the wire | 9,668 B (uncompressed) | **1,401 B** (gzip, about 85% smaller) |
+| First page of Jameyas through the BFF | 9,668 B (uncompressed) | 9,668 B — compression moved to the edge proxy (see fix 4) |
 | Static asset caching | `public, max-age=31536000, immutable` (unchanged) | Same, verified |
 
 Bundle (`next build`, First Load JS):
@@ -67,7 +67,7 @@ Resilience measurements:
 | 1 | Two extra detail-page requests on the marketplace, one per visible card | Next's automatic `<Link>` prefetch fetches the RSC payload of each visible link (N+1-style) | `prefetch={false}` on data-bearing links; explicit warm-up on hover or focus, deduplicated by the query cache | `ed265fa`, `4d3ab39` |
 | 2 | Waterfall: three API calls started only after the JS bundle loaded | Data was fetched on mount in the client | Server component prefetches `me`, featured and the first list page in parallel; HTML is hydrated with the data | `ed265fa` |
 | 3 | `GET /favicon.ico` returned 404 | No icon | `app/icon.svg` | `4d3ab39` |
-| 4 | API responses were not compressed | Route handlers do not gzip; the BFF relayed decoded bodies | Streaming gzip in the BFF for compressible responses to clients that accept it, with `Vary` | `e0aa4db` |
+| 4 | API responses were not compressed | Route handlers do not gzip; the BFF relayed decoded bodies | ~~Streaming gzip in the BFF~~ **reverted**: Next.js strips `Content-Encoding` from route-handler responses, so browsers received gzip bytes labelled as JSON and every client-side call failed to parse. Compression belongs to the reverse proxy / CDN in front of Next (nginx, ALB, CloudFront). A regression test (`proxy-encoding.test.ts`) asserts the BFF never encodes bodies. | `e0aa4db`, reverted in the fix commit |
 | 5 | MSW (about 290 kB) and fixtures were emitted into the production client bundle | An unset `NEXT_PUBLIC_*` stays a runtime lookup; the dev branch survived | Build-time env literals, `IgnorePlugin` on `src/mocks` when mocking is off, and `npm run check:bundle` to fail a build that leaks | `467dae5` |
 | 6 | Filter changes flashed an empty list | Query key change cleared data | `keepPreviousData` on the list | `ed265fa` |
 | 7 | One request per keystroke in search | Search applied on every change | 300 ms debounce; an applied-search ref prevents overwriting newer typing | `5088978` |
@@ -116,8 +116,10 @@ prefetch and the login route. It applies, in order:
 4. **Header policy.** Forwarded: `Accept`, `Content-Type`, `Idempotency-Key`, `If-None-Match`,
    `X-Request-Id` (generated if absent). Relayed: status, body, `ETag`, `Cache-Control`, `Retry-After`,
    `Idempotent-Replayed`, `RateLimit-*`, `X-Request-Id`. Dropped: `Set-Cookie` and hop-by-hop headers.
-5. **Compression.** Streaming gzip (`CompressionStream`) for `application/json` and `text/*`, when the
-   client sends `Accept-Encoding: gzip`. Bodies are piped, not buffered.
+5. **Compression.** Not done in the BFF. Next.js removes `Content-Encoding` from route-handler
+   responses (`FORBIDDEN_HEADERS` in `next/dist/server/send-response.js`), so a hand-gzipped body
+   reaches the browser undecodable. Bodies are streamed as-is (decoded by undici); compression is
+   the job of the edge proxy / CDN in production. Guarded by `src/server/bff/proxy-encoding.test.ts`.
 
 The breaker state is per process. With several replicas each one detects failure independently; that
 is acceptable at this scale and is noted as a limit.
@@ -159,5 +161,5 @@ npx -y lighthouse@12 http://localhost:3000/ --only-categories=performance --outp
 
 Tests that lock these behaviors in: `request-budget.test.tsx` (zero requests for N cards, one warm-up per
 hover), `circuit-breaker.test.ts`, `backend-client.test.ts`, `backoff.test.ts`, `rate-gate.test.ts`,
-`polling-policy.test.ts` (no polling while hidden), `filter-debounce.test.tsx`, `compression.test.ts`,
+`polling-policy.test.ts` (no polling while hidden), `filter-debounce.test.tsx`, `proxy-encoding.test.ts` (BFF never encodes bodies),
 and `idle.test.ts`.

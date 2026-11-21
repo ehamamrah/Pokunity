@@ -3,7 +3,6 @@ import type { Response as UndiciResponse } from 'undici';
 import { createUuid } from '@/shared/lib/uuid';
 import { isBlockedPath, requiresSession, SESSION_COOKIE } from './config';
 import { callBackend, unavailableResponse, type BackendOutcome } from './backend-client';
-import { acceptsGzip, gzipStream, isCompressible } from './compression';
 import { expiredSessionCookie, isSecureRequest } from './cookies';
 import { errorResponse } from './envelope';
 
@@ -62,20 +61,14 @@ async function forward(request: NextRequest, segments: string[], token: string |
 }
 
 /** Expired/invalid JWT at the backend: drop the cookie so the next navigation goes to login. */
-function compressIfAccepted(upstream: UndiciResponse, acceptEncoding: string | null): ReadableStream | null {
-  const contentType = upstream.headers.get('content-type');
-  if (!upstream.body || !acceptsGzip(acceptEncoding) || !isCompressible(contentType) || upstream.status === 304) return upstream.body as ReadableStream | null;
-  return gzipStream(upstream.body as ReadableStream<Uint8Array>);
-}
-
-function relayUpstream(upstream: UndiciResponse, token: string | undefined, requestId: string, secure: boolean, acceptEncoding: string | null): NextResponse {
-  const body = compressIfAccepted(upstream, acceptEncoding);
-  const compressed = body !== upstream.body;
-  const response = new NextResponse(body as BodyInit | null, { status: upstream.status, headers: relayHeaders(upstream.headers) });
-  if (compressed) {
-    response.headers.set('content-encoding', 'gzip');
-    response.headers.append('vary', 'Accept-Encoding');
-  }
+/**
+ * Streams the (already decoded) upstream body. Compression is NOT done here: Next.js strips
+ * Content-Encoding from route-handler responses, so a hand-gzipped body would reach the
+ * browser as undecodable bytes. Compression belongs to the edge proxy / CDN in front of Next.
+ */
+function relayUpstream(upstream: UndiciResponse, token: string | undefined, requestId: string, secure: boolean): NextResponse {
+  const body = upstream.body as BodyInit | null;
+  const response = new NextResponse(body, { status: upstream.status, headers: relayHeaders(upstream.headers) });
   if (!response.headers.get('x-request-id')) response.headers.set('x-request-id', requestId);
   if (upstream.status === 401 && token) {
     response.cookies.set(expiredSessionCookie(secure));
@@ -93,6 +86,6 @@ export async function proxyRequest(request: NextRequest, segments: string[]): Pr
     return errorResponse(401, 'UNAUTHORIZED', 'Please sign in to continue.', requestId);
   }
   const outcome = await forward(request, segments, token, requestId);
-  if (outcome.kind === 'response') return relayUpstream(outcome.response, token, requestId, secure, request.headers.get('accept-encoding'));
+  if (outcome.kind === 'response') return relayUpstream(outcome.response, token, requestId, secure);
   return unavailableResponse(outcome, requestId) ?? errorResponse(503, 'INTERNAL_ERROR', 'Service unavailable.', requestId);
 }
