@@ -1,10 +1,14 @@
 # Seat Reservation (Task 1)
 
-This document explains how a member goes from "I want seat 7" to a confirmed, paid seat, and why
-the design cannot sell a seat twice or charge a member without a seat.
+How a member goes from "I want seat 7" to a paid, confirmed seat.
 
-Code: `backend/src/modules/reservations`, `backend/src/modules/payments`, `backend/src/modules/catalog`.
-Contract: [`docs/api/reservations.md`](../api/reservations.md), [`payments-webhook.md`](../api/payments-webhook.md).
+**In short:**
+
+- PostgreSQL claims the seat with one conditional `UPDATE`, so only one request can win it.
+- The hold lasts 5 minutes. Payment is only **authorized** (funds held) until the seat is confirmed, then **captured**. If the seat is lost, the authorization is **voided**, so there is never a refund.
+- Duplicate clicks, duplicate webhooks and lost webhooks are absorbed by idempotency keys, unique event ids and a reconciliation job.
+
+API: [reservations](../api/reservations.md) · [webhook](../api/payments-webhook.md). Every edge case: [edge cases](edge-cases.md).
 
 ## 1. Lifecycle
 
@@ -19,24 +23,20 @@ stateDiagram-v2
   PAYMENT_PENDING --> FAILED: payment.failed / reconciliation timeout (seat released, auth voided)
 ```
 
-The same table is enforced three times: in code (`reservation-state-machine.ts`), in every
-`UPDATE` (`WHERE status = ANY(<legal sources>)`), and by the `reservations_status_guard` trigger.
-
-Payment states: `AUTHORIZING → AUTHORIZED → CAPTURED | VOIDED`, `AUTHORIZING → FAILED`, and
-`FAILED → VOIDED` (a late authorization after a timeout is voided).
+These transitions are enforced three times: in code, in every `UPDATE ... WHERE status = <expected>`, and by a database trigger.
 
 ## 2. Placing a hold
 
-Checks run in the contract order, cheapest first:
+Checks run cheapest first:
 
 | # | Check | Where | Result |
 |---|---|---|---|
-| 1 | Rate limit 5 / 10 s / member (Redis sliding window, local fallback) | `RateLimitGuard` | `429` + `Retry-After` |
-| 2 | Idempotency key (claim / replay / in-progress / reused) | `IdempotencyInterceptor` | replay, `409`, `422`, `400` |
-| 3 | KYC verified (cache → breaker → stale-if-error) | `KycVerifiedHandler` | `403 KYC_REQUIRED`, `503 KYC_UNAVAILABLE` |
-| 4 | One active hold per Jameya; ≤ `maxActiveHolds` (3, or 1 after ≥ 3 expired holds) | `SingleActiveReservationHandler`, `HoldLimitHandler` | `409` |
-| 5 | Risk tier (HIGH cannot take the earliest 30% of seats) | `RiskTierHandler` | `403 RISK_RESTRICTED` |
-| 6 | Redis gate: available counter > 0; per-seat single-flight lock | `AvailabilityGateService` | `409 JAMEYA_FULL` / `SEAT_UNAVAILABLE` |
+| 1 | Rate limit: 5 per 10 s per member | `RateLimitGuard` | `429` + `Retry-After` |
+| 2 | Idempotency key | `IdempotencyInterceptor` | replay, `409`, `422`, `400` |
+| 3 | KYC verified (cached) | `KycVerifiedHandler` | `403 KYC_REQUIRED`, `503 KYC_UNAVAILABLE` |
+| 4 | One hold per Jameya, at most 3 in total (1 after 3+ expired holds) | `SingleActiveReservationHandler`, `HoldLimitHandler` | `409` |
+| 5 | Risk tier: HIGH can't take the first 30% of seats | `RiskTierHandler` | `403 RISK_RESTRICTED` |
+| 6 | Redis gate: seats left? seat already being claimed? | `AvailabilityGateService` | `409 JAMEYA_FULL` / `SEAT_UNAVAILABLE` |
 | 7 | Atomic claim in PostgreSQL | `CreateReservationUseCase.claimInTransaction` | `201` or `409 SEAT_UNAVAILABLE` |
 
 Step 7 is one transaction:
@@ -50,8 +50,7 @@ INSERT INTO reservations (…, fee, status, expires_at) VALUES (…, $fee, 'HELD
 INSERT INTO audit_log …;
 ```
 
-The fee is **locked at hold time** (copied into the reservation). Later price changes do not
-affect it.
+The fee is copied into the reservation, so later price changes don't affect it.
 
 ## 3. Sequence diagrams
 
@@ -135,9 +134,9 @@ sequenceDiagram
   end
 ```
 
-Our documented choice for `tok_timeout`: the simulator **authorizes** but never calls back, so
-reconciliation confirms the seat about 2 minutes later (`PAYMENT_PENDING → CONFIRMED`). The
-10-minute timeout branch is exercised by `tok_slow` in the integration tests.
+With `tok_timeout` the simulator authorizes but never calls back, so reconciliation confirms the seat about 2 minutes later.
+
+If an authorization arrives **after** a payment was timed out, it is voided straight away and the reservation stays `FAILED`. The member is never charged.
 
 ### 3.5 Hold expiry racing payment
 
@@ -156,42 +155,21 @@ sequenceDiagram
   Note over DB: The sweeper skips the locked row. If checkout won before expiry → PAYMENT_PENDING, and the sweeper can never expire it.<br/>If the clock passed expiry → checkout matches 0 rows → 410 RESERVATION_EXPIRED, and the next sweep expires the hold.
 ```
 
-### 3.6 Authorization arrives after we gave up
-
-```mermaid
-sequenceDiagram
-  participant REC as Reconciliation
-  participant PSP
-  participant API
-  participant DB
-  REC->>DB: 10 min without auth → payment FAILED (PAYMENT_TIMEOUT), reservation FAILED, seat released, outbox VOID
-  PSP->>API: payment.authorized (very late)
-  API->>DB: tx: payment is FAILED → ledger AUTHORIZE + outbox VOID (re-armed)
-  API->>PSP: (relay) void(intent)
-  API->>DB: payment FAILED→VOIDED · ledger VOID
-  Note over API,DB: The member is never charged and the reservation stays FAILED.
-```
-
 ## 4. How consistency is ensured
 
-1. **Single writer per seat.** The seat row's conditional update serialises claimants. The
-   partial unique index on live reservations is the second line of defence.
-2. **Atomic coupling.** Seat state, reservation state, payment state, ledger, outbox, and audit for
-   one decision commit together or not at all.
-3. **Every transition is conditional** on the expected source state. Replays, duplicates, and
-   out-of-order events match zero rows and are recorded as `IGNORED`.
-4. **No side effects inside transactions.** Provider calls happen after commit (authorize) or via
-   the outbox (capture/void), so a crash can lose only work that the outbox or reconciliation will redo.
-5. **Recovery is automatic.** Reconciliation resolves stuck payments and orphan events. The gate
-   rebuild corrects Redis. Idempotency leases expire after 60 s if their owner crashed.
-6. **The database refuses illegal states** (triggers, CHECKs, unique indexes) even if application code regresses.
+1. **One winner per seat.** A conditional update claims the seat; a unique index backs it up.
+2. **All or nothing.** Seat, reservation, payment, ledger, outbox and audit change in one transaction.
+3. **Conditional transitions.** Duplicates and out-of-order events match zero rows and are ignored.
+4. **No provider calls inside transactions.** Capture and void go through an outbox, so a crash loses nothing.
+5. **Self-healing.** Reconciliation settles stuck payments; the Redis gate is rebuilt from PostgreSQL.
+6. **The database refuses illegal states** (triggers, checks, unique indexes), even if the code has a bug.
 
 ## 5. Trade-offs
 
 | Choice | Benefit | Cost |
 |---|---|---|
-| Hold first, pay second (5 min) | The member knows the seat is theirs before entering payment details | Seats can be hoarded; mitigated by hold limits, behavioural penalties, and rate limits |
-| Authorize/capture | No refunds; an exact guarantee | Two provider calls; authorizations can expire if capture were delayed for days (not the case here: about 1 s) |
-| `PAYMENT_PENDING` never expires by TTL | No seat released while money is in flight | A seat can be blocked up to 10 min by a stuck payment |
-| Redis gate fails open | Redis outage ≠ booking outage | During an outage all contention reaches PostgreSQL (still correct, only slower) |
-| Per-seat single-flight lock | Collapses N concurrent claims on one row into 1 DB statement | A request can lose to a competitor that later fails; the member retries |
+| Hold first, pay second | The seat is theirs before they enter card details | Hoarding, limited by hold limits and rate limits |
+| Authorize, then capture | No refunds ever | Two provider calls |
+| `PAYMENT_PENDING` never times out by TTL | No seat released while money is moving | A stuck payment can block a seat up to 10 min |
+| Redis gate fails open | Redis down doesn't stop booking | All load reaches PostgreSQL (correct, slower) |
+| Per-seat single-flight lock | N claims on one seat become 1 DB query | A loser may need to retry if the winner fails |

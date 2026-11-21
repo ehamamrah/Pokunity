@@ -1,49 +1,42 @@
-# Marketplace Ranking & Personalization (Task 2, backend)
+# Ranking and Personalization (Task 2)
 
-Companion docs (frontend team): [UX strategy](ux-strategy.md) · [A/B testing](ab-testing.md) ·
-[stale data & optimistic UI](stale-data-and-optimistic-ui.md).
-Code: `backend/src/modules/catalog/domain/ranking/`, `catalog/domain/badges.ts`,
-`catalog/application/marketplace.service.ts`, `analytics/domain/experiments.ts`.
+**In short:** every few seconds the backend loads all Jameyas into memory. Each request then filters, scores and sorts that in-memory list for the viewer. Scores mix six signals; the A/B variant decides the weights. Code: `backend/src/modules/catalog/domain/ranking/`.
 
-## 1. Pipeline
+## Pipeline
 
 ```mermaid
 flowchart LR
-  S[(PostgreSQL)] -- "≤ every 4 s, 1 aggregate query" --> SN["Snapshot<br/>5k listings + featured ids + asOf"]
-  U["UsersFacade.getPersonalization()"] --> CTX
-  X["assignVariant(userId, ranking_v2)"] --> CTX["RankingContext + Strategy"]
-  SN --> F[Filter specs] --> R["Rank: strategy.rank()"] --> O[Sort strategy] --> P[Paginate] --> B[Badges + reasons] --> J[JSON]
+  S[(PostgreSQL)] -- "every ≤ 4 s, 1 query" --> SN["Snapshot<br/>all Jameyas + availability"]
+  U["Viewer preferences<br/>+ booking history"] --> CTX["Ranking context"]
+  X["A/B variant"] --> CTX
+  SN --> F[Filter] --> R[Score] --> O[Sort] --> P[Page] --> B["Badges + reasons"]
   CTX --> R
 ```
 
-1. **Snapshot** (`CatalogSnapshotService`): all Jameyas with `totalSeats`, `seatsAvailable`,
-   `minFee`, `maxFee`, plus active featured campaign ids, refreshed lazily when older than 4 s
-   (single-flight). `asOf` = snapshot time, so the response is never more than about 5 s stale.
-2. **Viewer context** (`RankingContextFactory`): declared preferences (`typicalMonthlyAmount`,
-   `preferredDurations`); if no amount is declared, the **average monthly amount of the member's
-   confirmed history** (`user_behavior`). Then the A/B variant and its strategy.
-3. **Filter** by specifications (`minMonthly`, `maxMonthly`, `duration`, `q`, `availableOnly`).
-4. **Rank** (all matches for `sort=recommended`; for other sorts only the returned page is scored).
-5. **Sort** by a strategy per `sort` key with `id` as tie-breaker, so pagination is stable.
-6. **Present** with badges and up to 3 human-readable reasons.
+1. **Snapshot:** all Jameyas with seats left and fee range, refreshed when older than 4 s. Data is at most about 5 s old.
+2. **Viewer:** declared monthly amount and durations. If no amount was declared, the average of past confirmed bookings is used.
+3. **Filter:** amount range, duration, name search, available only.
+4. **Score and sort:** `id` breaks ties, so pages stay stable.
+5. **Present:** badges and up to 3 plain-language reasons.
 
-## 2. Signals (each normalised to [0, 1])
+## Signals
 
-| Signal | Formula | Personal? |
+Each signal is scaled to 0–1.
+
+| Signal | Meaning | Personal? |
 |---|---|---|
-| `amountMatch` | `1 − \|monthly − typical\| / typical` (clamped); neutral 0.5 if unknown | yes |
-| `durationMatch` | `1 − (min distance to a preferred duration) / 6`; neutral 0.5 if none | yes |
-| `scarcity` | `1 − seatsAvailable / totalSeats` (social proof, urgency) | no |
-| `startingSoon` | 1 if start ≤ 14 days, linear to 0 at 120 days; 0 if started | no |
-| `freshness` | `1 − ageDays / 30` | no |
-| `featured` | 1 if in an active marketing campaign | no |
+| `amountMatch` | How close the monthly amount is to the viewer's usual amount | yes |
+| `durationMatch` | How close the duration is to a preferred duration | yes |
+| `scarcity` | Share of seats already taken | no |
+| `startingSoon` | 1 if starting within 14 days, falling to 0 at 120 days | no |
+| `freshness` | Newly listed, falling to 0 after 30 days | no |
+| `featured` | In an active marketing campaign | no |
 
-## 3. Score and weights per variant
+## Score and weights
 
-`score = Σ weight(signal) × signal`, rounded to 2 decimals. The weights of each variant sum to 1,
-so scores are comparable across variants and stay in [0, 1].
+`score = Σ weight × signal`. Each variant's weights sum to 1, so scores stay between 0 and 1.
 
-| Signal | `control` (baseline) | `treatment` (`ranking_v2`, personalised) |
+| Signal | `control` | `treatment` (personalised) |
 |---|---|---|
 | amountMatch | 0 | **0.35** |
 | durationMatch | 0 | **0.20** |
@@ -52,59 +45,46 @@ so scores are comparable across variants and stay in [0, 1].
 | freshness | 0.15 | 0.05 |
 | featured | 0.20 | 0.10 |
 
-**Reasons.** Contributions are sorted by value. The top ones that pass a threshold are rendered
-as text, at most 3:
-"Matches your usual monthly amount" (amountMatch ≥ 0.85), "Matches your preferred 12-month
-duration", "Only N seats left" (≤ 3), "Starts in N days" (≤ 30), "Newly listed",
-"Featured by Pokunity". The control variant never produces personal reasons.
+**Reasons** are the strongest contributions turned into text, at most 3. For example: "Matches your usual monthly amount", "Only 2 seats left", "Starts in 12 days". Control never shows personal reasons.
 
-**Badges** (independent of score):
-`FEATURED` (active campaign) · `ALMOST_FULL` (≤ 2 seats or ≤ 20% left) · `STARTING_SOON` (≤ 30 days)
-· `NEW` (listed ≤ 7 days ago) · `BEST_MATCH` (treatment only: amountMatch ≥ 0.85 and an exact
-duration match). `BEST_MATCH` is part of the treatment experience, so it is not shown to control.
+**Badges** (independent of the score):
 
-## 4. Experiments
+| Badge | When |
+|---|---|
+| `FEATURED` | In an active campaign |
+| `ALMOST_FULL` | ≤ 2 seats or ≤ 20% left |
+| `STARTING_SOON` | Starts within 30 days |
+| `NEW` | Listed in the last 7 days |
+| `BEST_MATCH` | Treatment only: amount and duration both match |
 
-* **Assignment:** `bucket = uint32(sha256("ranking_v2:" + userId)[0..4]) mod 100`;
-  `treatment` if `bucket < 50`. It is deterministic, sticky, needs no storage, and is identical on
-  every instance. It is returned in `meta.experiment` for the frontend to echo in `POST /events`.
-* **Strategy pattern:** each variant is a `WeightedRankingStrategy` with its own weights
-  (`ranking-strategies.ts`). A new variant needs a weight table and a percentage, nothing else.
-* **Events:** client events (`impression`, `click`, `seat_selected`, `checkout_started`) are
-  batch-inserted with the attribution the client sent (unattributed events stay `null`). Server
-  funnel events (`reservation_created`, `reservation_confirmed`) are written by the backend with
-  the member's assigned variant. The table is indexed on `(experiment_key, variant, type)`.
+## Experiments
 
-## 5. Featured campaigns (marketing configuration)
+- **Assignment:** hash of `ranking_v2:` + member id, split 50/50. Deterministic, sticky, needs no storage.
+- **Strategy pattern:** a variant is a weight table, so a new variant is a table plus a percentage.
+- Returned as `meta.experiment`. How the test is run and read: [A/B testing](ab-testing.md).
 
-`featured_campaigns(jameya_id, campaign, priority, starts_at, ends_at)`. Marketing can schedule
-campaigns without a deploy (SQL/admin tool). Active = `now() ∈ [starts_at, ends_at)`.
+## Featured campaigns
 
-* `GET /jameyas/featured`: up to 10 active, **non-full** Jameyas in priority order.
-* In the main list, `featured` is a ranking signal (weight 0.20 control / 0.10 treatment) and a
-  badge. It is not a pin, so a featured but poorly matching Jameya does not crowd out relevant ones.
+Marketing schedules campaigns in `featured_campaigns` (start, end, priority) without a deploy.
 
-## 6. Caching and staleness
+- `GET /jameyas/featured`: up to 10 active, non-full Jameyas by priority.
+- In the main list, `featured` is a signal and a badge, **not a pin**. A featured but poorly matching Jameya doesn't push out relevant ones.
 
-| Data | Freshness | Mechanism |
+## Freshness
+
+| Data | Max age | How |
 |---|---|---|
-| List / featured | ≤ 5 s (`asOf`) | Two-tier snapshot cache (L1 in-process ~1 s + L2 Redis ~3 s, single-flight) + ETag/304 + `Cache-Control: private, max-age=5` — see [performance](../performance/backend.md#5-caching) |
-| Detail seat map | ≤ 2 s | Redis cache (2 s), deleted on every committed seat change; never read by the booking path |
-| Booking | Authoritative | Conditional SQL; Redis gate is advisory |
+| List, featured | ≤ 5 s | Two-tier cache plus ETag ([caching](../performance/caching.md)) |
+| Seat map | ≤ 2 s | Cache cleared on every seat change |
+| Booking | live | Database only |
 
-## 7. Performance at 5,000+ Jameyas
+## Scale
 
-* Snapshot refresh: one `GROUP BY` over about 69k seats, roughly 30–60 ms, at most once per 4 s per instance.
-* Per request: filter + score + sort of ≤ 5,000 in-memory objects (each score is about 20
-  arithmetic operations), a few milliseconds of CPU, then a 20-item page.
-* Memory: about 1 KB per listing, so a few MB per instance.
+**Today (5,000 Jameyas):** the snapshot refresh is one aggregate query (30–60 ms) every 4 s per instance. Scoring 5,000 items in memory takes a few ms and a few MB.
 
-**Scaling further** (50k–500k Jameyas or many instances):
+**Beyond 50k Jameyas:**
 
-1. Maintain a `jameya_listing` read model (availability counters updated from seat-change events
-   via the outbox) instead of re-aggregating seats.
-2. Two-stage ranking: SQL/search engine pre-filters and orders by a **non-personal base score**
-   (indexed) to the top ~500 candidates; personal re-ranking applies to candidates only.
-3. Share the snapshot through Redis (one refresher, all instances read), or move to
-   OpenSearch for text search and filters.
-4. Learn the weights (logistic regression / LTR) from the `analytics_events` funnel per variant.
+1. Keep a listing table updated from seat events, instead of re-aggregating seats.
+2. Pre-filter the top ~500 in SQL or a search engine by a non-personal score; personalise only those.
+3. Share one snapshot through Redis, or move search to OpenSearch.
+4. Learn the weights from the experiment data (logistic regression or learning-to-rank).

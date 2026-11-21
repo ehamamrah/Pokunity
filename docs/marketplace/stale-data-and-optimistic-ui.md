@@ -1,69 +1,22 @@
-# Stale Data and Optimistic UI
+# Stale Data and Optimistic UI (Task 2)
 
-The contract allows marketplace reads to be up to **5 seconds stale**, and requires the booking path
-(`POST /reservations`, `POST /reservations/{id}/checkout`) to read the authoritative database. This
-document explains how the frontend turns that into behavior: what is shown, how often it refreshes,
-when the UI acts before the server answers, and how it recovers.
+**Rule:** browsing data may be up to 5 s old; booking always reads the database. A stale screen can cost a retry, never a double booking or a false "confirmed".
 
-## 1. Two freshness regimes
+## Two kinds of freshness
 
-| Surface | Source of truth | Freshness mechanism | Max age the user can see |
+| Screen | Source | Refresh | Oldest data shown |
 |---|---|---|---|
-| Marketplace list, featured carousel | Read model, cached by the server up to 5 s | `staleTime 5 s`, refetch every 12 s while visible, refetch on focus | About 5 s plus the 12 s refetch window; shown as "Availability updated Xs ago" |
-| Seat map on the detail page | Read model | `staleTime 5 s`, refetch every 5 s, refetch on focus | About 5 s |
-| Reserve, checkout, reservation status | Database (never cached) | Mutation response plus polling of `GET /reservations/{id}` | Zero: the response itself is authoritative |
+| List, featured | Server cache (≤ 5 s) | Every 12 s while visible, and on focus | ~5 s, shown as "updated Xs ago" |
+| Seat map | Server cache | Every 5 s, and on focus | ~5 s |
+| Reserve, checkout, status | Database | Response, then polling | Live |
 
-The freshness indicator uses the server's `asOf`, not the browser's fetch time. That is the honest
-number: it says how old the data is at the source, which is what a user should weigh.
+"Updated Xs ago" uses the server's `X-As-Of` time, not the browser's fetch time. That is how old the data really is.
 
-```mermaid
-flowchart LR
-  subgraph Reads [Reads: up to 5 s stale]
-    L[List / featured] -->|staleTime 5 s<br/>refetch 12 s, focus| S[(read model)]
-    D[Seat map] -->|staleTime 5 s<br/>refetch 5 s, focus| S
-  end
-  subgraph Writes [Writes: authoritative]
-    R[Reserve] -->|POST, Idempotency-Key| DB[(PostgreSQL)]
-    C[Checkout] -->|POST, Idempotency-Key| DB
-    P[Status poll] -->|GET, never cached| DB
-  end
-```
+**Revalidation:** after 5 s the browser re-asks with `If-None-Match`. If nothing changed, it gets a tiny `304` and keeps its copy; `X-As-Of` still updates the freshness line. Details: [caching](../performance/caching.md).
 
-### Revalidation and `X-As-Of` (contract v1.1)
+## Optimistic seat hold, with rollback
 
-Marketplace reads now carry an `ETag` over their content, without timestamps, and an `X-As-Of`
-header. Together they change what "stale" means on screen:
-
-- A read the browser already has, and which is still fresh (`max-age=5`), is served with no request.
-- After that, the browser revalidates with `If-None-Match`. Unchanged content returns `304`, and the
-  browser serves its stored body. The freshness line still moves: `X-As-Of` is sent on `304` too.
-- Changed content returns `200` with a new body and a new ETag. Only the changed cards re-render.
-
-So the "updated Xs ago" line is accurate in both cases, and an unchanged marketplace costs one small
-revalidation round trip, not a full download. The booking path is unchanged: holds and checkout always
-read the database, and the seat-conflict rules in section 3 still apply to a stale seat map. Details:
-[performance/caching.md § Frontend](../performance/caching.md#frontend).
-
-## 2. Why the seat map is still safe to act on
-
-A seat shown as available may be taken a moment later. The UI does not assume the seat map is
-current when the user clicks. The authoritative check happens on `POST /reservations`, in the order
-the contract defines (KYC, limits, restriction, then the atomic seat claim). A conflict returns
-`409 SEAT_UNAVAILABLE`, which the UI handles as described in section 3. So a stale map costs a
-retry, never a double booking.
-
-## 3. Optimistic seat hold, with rollback
-
-Reserving is the one place where the UI acts before the server answers, because the wait is
-perceptible and the outcome is usually success. The rules:
-
-1. On click, the seat shows **"Holding…"** immediately (the checkout machine moves to `holding`).
-2. The seat map snapshot is captured, and the cached seat is marked `HELD` (`markSeatHeld`), so
-   other views agree with what the user just did.
-3. The request is sent with an `Idempotency-Key` for this intent.
-4. On success the user navigates to `/reservations/{id}`, and the seat is re-read.
-5. On failure the snapshot is restored (`failReserve`). The seat map is then re-read from the
-   server, so the final state is the server's, not the optimistic one.
+Reserving is the one place the UI acts before the server answers: the wait is noticeable and success is likely.
 
 ```mermaid
 sequenceDiagram
@@ -72,69 +25,45 @@ sequenceDiagram
   participant C as Cache
   participant A as API
   U->>UI: Hold seat 7
-  UI->>C: snapshot, mark seat 7 HELD (optimistic)
+  UI->>C: save snapshot, show seat 7 as held
   UI->>A: POST /reservations (Idempotency-Key K)
   alt 201 Created
     A-->>UI: Reservation HELD
-    UI->>U: navigate to /reservations/{id}
+    UI->>U: go to /reservations/{id}
   else 409 SEAT_UNAVAILABLE
-    A-->>UI: error (seatNumber 7)
-    UI->>C: restore snapshot (rollback)
-    UI->>A: refetch seat map
-    UI->>U: "That seat was just taken" + nearest open seats
+    A-->>UI: error
+    UI->>C: restore snapshot
+    UI->>A: re-read seat map
+    UI->>U: "That seat was just taken" + nearest free seats
   end
 ```
 
-Retries are part of the same intent. Transport loss, `429 RATE_LIMITED` (honoring `Retry-After`),
-`409 IDEMPOTENCY_IN_PROGRESS`, and `5xx` are retried twice with the same key. The optimistic state
-stays visible during retries, because the intent has not failed yet.
+- Network errors, `429`, `409 IDEMPOTENCY_IN_PROGRESS` and `5xx` are retried twice **with the same key**. The seat stays "Holding…" meanwhile.
+- A definite rejection releases the key, so the next click is a new attempt.
 
-The seat's key is released only when the outcome is definitive. A business rejection releases it,
-so the next click is a new intent. A network failure keeps it, so the user can safely retry the same
-intent. Tests cover both (`reserve-flow.test.tsx`).
+## Payment is never optimistic
 
-## 4. Why payment is never optimistic
+- `202` from checkout shows "Authorizing your payment", never "Paid".
+- "Confirmed" appears only when the server says `CONFIRMED`. The UI state machine has no way to reach it on its own.
+- Decline or timeout shows "Your card was not charged".
 
-Payment is the one action where showing success early would lie. The money rules in
-`docs/api/reservations.md` mean that the provider only authorizes funds during `PAYMENT_PENDING`, and
-the capture happens only after the seat is confirmed. The UI mirrors that:
+## Polling
 
-- A `202 Accepted` from checkout moves the machine to `paying`, and the copy says the payment is being
-  authorized. It does not say "Paid" or "Confirmed".
-- `CONFIRMED` is reached only from the server: a `200` for a zero-fee seat, or a status poll that
-  reads `CONFIRMED`. The state machine has no transition from `paying` to `confirmed` on an event
-  the client generates.
-- A decline or timeout shows "Your card was not charged", with the authorization explained.
-
-This is verified by tests: a 202 never displays the confirmed message, and the confirmed message
-appears only when the server status is `CONFIRMED`.
-
-## 5. Polling policy
-
-Polling is a pure function of the reservation status and time, so its stop condition is tested
-directly (`poll-policy.ts`):
-
-| Status | Interval | Stops when |
+| Status | Every | Stops when |
 |---|---|---|
-| (not loaded) | 1.5 s | Loaded |
-| `HELD` | 5 s (detects sweeper expiry) | Status changes, or the tab is hidden |
-| `PAYMENT_PENDING` | 1.5 s for the first 15 s, then 3 s | Status becomes terminal |
-| `CONFIRMED`, `EXPIRED`, `CANCELLED`, `FAILED` | Never (`false`) | Terminal |
+| `HELD` | 5 s (to notice expiry) | Status changes |
+| `PAYMENT_PENDING` | 1.5 s, then 3 s after 15 s | Final status |
+| Final (`CONFIRMED`, `EXPIRED`, `CANCELLED`, `FAILED`) | never | – |
 
-Polling pauses while the tab is hidden, on every resource. When the tab becomes visible, the query
-refetches at once, and the server's status is what the page shows. A payment that settled while the
-tab was hidden therefore appears on return, with no stale state in between. Full policy:
-[performance/frontend.md](../performance/frontend.md#4-caching-and-polling-policy).
+Polling pauses in hidden tabs and refetches immediately when the tab is visible again.
 
-## 6. Conflict handling summary
+## Conflict handling
 
-| Response | Client action |
+| Response | UI action |
 |---|---|
-| `409 SEAT_UNAVAILABLE` | Roll back, re-read the seat map, suggest nearest seats |
+| `409 SEAT_UNAVAILABLE` | Roll back, re-read the map, suggest nearby seats |
 | `409 ACTIVE_RESERVATION_EXISTS` | Link to the existing hold |
-| `409 HOLD_LIMIT_REACHED` | Link to "My reservations" |
-| `409 JAMEYA_FULL` | Link to similar Jameyas (same monthly amount) |
-| `409 INVALID_STATE` (checkout) | Re-read the reservation, and show the server's status |
-| `409 IDEMPOTENCY_IN_PROGRESS` | Retry with the same key |
-| `410 RESERVATION_EXPIRED` | Machine moves to `expired`, and the user chooses the seat again |
-| `422 IDEMPOTENCY_KEY_REUSED` | Start again. Cannot occur through this UI, because keys are scoped to the intent |
+| `409 HOLD_LIMIT_REACHED` | Link to My reservations |
+| `409 JAMEYA_FULL` | Show similar Jameyas |
+| `409 INVALID_STATE` | Re-read and show the server's status |
+| `410 RESERVATION_EXPIRED` | Ask the user to pick the seat again |

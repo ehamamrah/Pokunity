@@ -1,37 +1,53 @@
-# Reservation & Payment Edge Cases
+# Reservation and Payment Edge Cases
 
-Paths are relative to `backend/`. "IT" = integration test on real PostgreSQL + Redis
-(`test/*.e2e-spec.ts`), "UT" = unit test (`src/**/*.spec.ts`), "LT" = `npm run loadtest:contention`,
-"Manual" = curl walkthrough in the [runbook](../operations/runbook.md#manual-walkthrough).
+Every case below has an automated test unless noted. **IT** = integration test (real PostgreSQL and Redis), **UT** = unit test, **LT** = 1,000-user load test.
 
-| # | Edge case | Risk | Approach | Where in code | Covered by |
-|---|---|---|---|---|---|
-| 1 | Double click on "Reserve" | Two holds, or a hold plus a confusing error | Same `Idempotency-Key` per intent; the second request replays the stored `201` (`Idempotent-Replayed: true`) or gets `409 IDEMPOTENCY_IN_PROGRESS` while the first is running. Even with different keys, the partial unique index gives one active hold per member and Jameya. | `src/modules/idempotency/idempotency.interceptor.ts`, `migrations/0001_initial_schema.sql` (`reservations_active_user_jameya_uq`) | IT `booking-concurrency` "double click with the same Idempotency-Key…" |
-| 2 | Double booking race (many members, one seat) | Seat sold twice | Conditional `UPDATE seats … WHERE status='AVAILABLE'` in the reservation transaction; partial unique index on live reservations; Redis single-flight lock reduces DB contention | `src/modules/catalog/infrastructure/seats.repository.ts` (`CLAIM_SQL`), `src/modules/catalog/application/availability-gate.service.ts` | IT "50 members racing…", "the PostgreSQL conditional claim alone…", "partial unique index rejects…"; LT (1,000 users, 0 double bookings) |
-| 3 | Duplicate webhooks | Double confirm / double capture | `payment_events.event_id` PK + `ON CONFLICT DO NOTHING` → `duplicate:true`; conditional transitions; one outbox row per payment; ledger `UNIQUE(payment_id, entry_type)` | `src/modules/payments/application/webhook.service.ts`, `infrastructure/payment-events.repository.ts`, `infrastructure/outbox.repository.ts` | IT `payments` "duplicate payment.authorized (3x concurrently)…"; Manual `tok_duplicate` |
-| 4 | Out-of-order webhooks (`captured` before `authorized`) | Illegal state, wrong ledger | Each event applies only from legal source states, otherwise it is recorded as `IGNORED` (state machine + trigger) | `src/modules/payments/application/payment-outcome.service.ts` | IT "out-of-order payment.captured…" |
-| 5 | Webhook for an unknown intent (arrives before we stored the intent id) | Lost event; provider retries forever | Stored as `ORPHAN`, `200` returned; reconciliation retries orphans every 10 s | `webhook.service.ts` (`retryOrphan`), `reconciliation.job.ts` | IT "unknown intent is stored as an orphan…" |
-| 6 | Hold expires while paying | Seat released while funds are being authorized | Checkout transition requires `expires_at > now()` atomically; once `PAYMENT_PENDING`, the sweeper predicate (`status='HELD'`) and the DB trigger make expiry impossible | `src/modules/reservations/infrastructure/reservations.repository.ts` (`TRANSITION_SQL`, `EXPIRE_BATCH_SQL`) | IT `expiry` "sweeper expires overdue HELD holds but never a PAYMENT_PENDING…", "checkout after the hold expired returns 410…" |
-| 7 | Authorization after timeout | Member charged with no seat | Reservation already `FAILED`: the late authorization is recorded (ledger `AUTHORIZE`) and **voided** via outbox (`FAILED → VOIDED`); never captured | `payment-outcome.service.ts` (`voidLateAuthorization`), `outbox.repository.ts` (VOID re-arm) | IT "authorization arriving after the payment timed out is voided…" |
-| 8 | Capture fails | Seat confirmed, money not collected | Outbox retries with exponential backoff (2^n s, ≤ 5 min, 12 attempts) → `DEAD` + alert; the seat stays `CONFIRMED` (funds authorized) | `src/modules/payments/application/outbox-processor.job.ts` | Behaviour observed in development (capture refused while the intent was not yet authorized, then retried); runbook §Incidents |
-| 9 | KYC slow / down | Requests hang; non-compliant bookings | 1.5 s timeout, circuit breaker, 10 min fresh cache, 24 h stale-if-error, negative cache, single-flight; **fail closed** for booking (`503 KYC_UNAVAILABLE`), browsing unaffected | `src/modules/users/application/kyc.service.ts`, `domain/circuit-breaker.ts` | UT `kyc.service.spec.ts`, `circuit-breaker.spec.ts`; Manual `noura` |
-| 10 | Provider down at checkout | Reservation stuck, or a charge without a record | Payment row committed before the call; the call has a 5 s timeout; failure is logged and the reservation stays `PAYMENT_PENDING`; reconciliation looks the intent up by our reference (payment id) and resolves it or times it out (10 min) | `src/modules/payments/payments.facade.ts` (`requestAuthorization`), `reconciliation.job.ts` | IT "lost webhook (tok_timeout)…"; UT `reconciliation-policy` |
-| 11 | Client retries / timeouts | Duplicate holds or payments | Idempotency keys (24 h, per member, request fingerprint); `payments.reservation_id UNIQUE`; checkout on a non-`HELD` reservation returns `409 INVALID_STATE` unless the same key replays the original `202` | `idempotency/*`, `checkout.use-case.ts` | IT "same key with a different body…"; UT `idempotency.spec.ts` |
-| 12 | App crash mid-transaction | Half-applied state | Single DB transactions roll back atomically; provider calls happen after commit or through the outbox; an idempotency key left `IN_PROGRESS` is taken over after its 60 s lease; the outbox lease (30 s) returns claimed items | `shared/database/database.service.ts`, `idempotency.repository.ts` (`TAKE_OVER_SQL`), `outbox.repository.ts` (`CLAIM_SQL`) | UT `idempotency.spec.ts` (lease expiry → proceed) |
-| 13 | Redis down | Booking outage, or oversell if Redis were authoritative | Redis is never authoritative: the gate fails open, the rate limiter fails open, KYC falls back to the provider; PostgreSQL still decides | `availability-gate.service.ts` (`admit` catch), `shared/http/rate-limit.service.ts`, `kyc-cache.ts` | Code review; runbook §Redis outage |
-| 14 | Stale availability in the list | Member clicks a seat that is already gone | The list is ≤ 5 s stale by contract (`asOf`, `Cache-Control: max-age=5`); detail reads PostgreSQL; booking is authoritative → `409 SEAT_UNAVAILABLE` / `JAMEYA_FULL` | `catalog/application/catalog-snapshot.service.ts` (`SNAPSHOT_MAX_AGE_MS=4000`), `jameya-detail.service.ts` | Manual; LT (`JAMEYA_FULL` fast path) |
-| 15 | Price change during hold | Member charged a different fee than shown | Fee copied into `reservations.fee` at hold time; payment amount = reservation fee; webhook amount mismatch → event ignored (never captured) and left to reconciliation | `create-reservation.use-case.ts`, `payment-outcome.service.ts` (`amountMismatch`) | Code review |
-| 16 | Optimistic UI mismatch | UI shows "held" or "confirmed" when it is not | All mutation responses return the authoritative `Reservation`; `GET /reservations/{id}` is never cached (poll target); terminal states are explicit; `heldByViewer`/`activeReservationId` in the seat map allow reconciliation of UI state | `reservation.presenter.ts`, `seat-view.ts` | IT assertions on returned bodies |
-| 17 | Hold limit raced by parallel requests from one member | More holds than allowed | Pre-check plus an authoritative re-check under a per-member advisory transaction lock | `create-reservation.use-case.ts` (`revalidateLimits`), `reservations.repository.ts` (`lockMember`) | IT "hold limit holds under concurrent requests…" |
-| 18 | Zero-fee seat | A payment created for 0 | `HELD → CONFIRMED` directly at checkout (`200`, `payment: null`), still conditional on expiry | `checkout.use-case.ts` (`confirmFree`) | IT "zero-fee seat confirms at checkout…" |
-| 19 | Cancel during payment / double cancel | Seat released while authorizing; non-idempotent DELETE | Only `HELD` can be cancelled (`409 INVALID_STATE` otherwise); cancelling a `CANCELLED` reservation returns `200` with the same body | `cancel-reservation.use-case.ts` | IT "cancel releases the seat, is idempotent…" |
-| 20 | Forged webhook | Fake confirmations | HMAC-SHA256 over the raw body, constant-time compare, `401 INVALID_SIGNATURE` | `payments/api/webhook-signature.guard.ts` | IT, UT `payment-state-machine.spec.ts` |
-| 21 | Hoarding (holds left to expire) | Inventory blocked by speculators | `user_behavior.expired_holds_count` ≥ 3 → max 1 active hold; rate limit 5/10 s | `users/domain/hold-limit-policy.ts`, `hold-expiry.job.ts` | UT `policies.spec.ts`; IT sweeper counter assertion; Manual `khaled` |
-| 22 | Code regression attempts an illegal transition | Corrupted lifecycle | DB triggers reject illegal status moves; ledger and audit are append-only | `migrations/0001_initial_schema.sql` | IT "database rejects illegal status transitions…" |
-| 23 | Logged-out or stolen token reused | Session hijack continues after logout | `POST /auth/logout` puts the token's `jti` on a Redis denylist (TTL = remaining lifetime); `allSessions` bumps `users.token_version`, invalidating every token of the member; the guard rejects both with `401` | `src/modules/auth/application/logout.service.ts`, `auth/infrastructure/jwt-auth.guard.ts`, `token-denylist.ts`, `migrations/0003_token_version.sql` | IT `logout` "logout revokes this token only…", "allSessions revokes every token…" |
-| 24 | Logout replayed / double logout | Error on a harmless retry | Logout accepts an already revoked token (`@SessionPolicy('allow-revoked')`) and always answers `204` | `auth/api/auth.controller.ts` | IT `logout` (204 twice) |
-| 25 | Redis down: denylist cannot be checked | A revoked token moves money; or every member is logged out | Token versions are still enforced from PostgreSQL (5 s cache). Reads proceed; reserve and checkout fail closed with `503 SERVICE_UNAVAILABLE` + `Retry-After: 5` | `jwt-auth.guard.ts`, `shared/http/public.decorator.ts` (`SessionPolicy`) | IT `logout` "denylist unavailable: reads still work, money-moving routes fail closed with 503" |
-| 26 | Redis down during logout | Logout silently ignored | Escalated to "all sessions" (token version bump in PostgreSQL): revoking more than asked is safe | `logout.service.ts` | IT `logout` "logout while the denylist is unavailable escalates…" |
-| 27 | "Log out everywhere" vs other instances' caches | Old tokens accepted briefly elsewhere | Version cache TTL 5 s (immediate on the serving instance); documented bound | `auth/infrastructure/session-version.cache.ts` | ADR-0012 |
-| 28 | Cached marketplace view after a seat change | 304 hides a real change | Marketplace ETags include the snapshot content hash; the detail ETag is computed from the body (seat map cache deleted on every committed seat change); reservation ETags hash the full body incl. payment | `shared/http/conditional.ts`, `catalog/application/*` | IT `conditional-get` "detail ETag changes when a seat is reserved", "reservation ETag changes when its status changes" |
-| 29 | `/similar` for a Jameya created seconds ago | 404 until the next snapshot | Target newer than the snapshot is read as one indexed row; candidates still come from the snapshot | `catalog/application/catalog-snapshot.service.ts` (`listingOf`) | IT `contract-v1-1` "similar…" |
+## Booking
+
+| # | Case | How it's handled | Proof |
+|---|---|---|---|
+| 1 | Double click on Reserve | Same `Idempotency-Key` replays the first response. A unique index allows one active hold per member and Jameya anyway | IT |
+| 2 | Many members, one seat | Conditional `UPDATE ... WHERE status='AVAILABLE'`, one winner. A unique index is the backup; a Redis lock keeps losers off the database | IT, LT (0 double bookings) |
+| 3 | One member racing the hold limit | Limit re-checked under a per-member database lock | IT |
+| 4 | Hoarding (letting holds expire) | 3+ expired holds → limit drops to 1 active hold; rate limit 5 per 10 s | UT, IT |
+| 5 | List shows a seat that's gone | List may be 5 s old; booking always reads the database and returns `409` | LT |
+| 6 | Price changes during a hold | Fee is copied at hold time. A webhook with a different amount is never captured | Code review |
+| 7 | Zero-fee seat | Confirmed directly at checkout, no payment | IT |
+| 8 | Cancel during payment, or twice | Only `HELD` can be cancelled; a second cancel returns the same `200` | IT |
+
+## Payment
+
+| # | Case | How it's handled | Proof |
+|---|---|---|---|
+| 9 | Hold expires while paying | Checkout requires `expires_at > now()`. Once `PAYMENT_PENDING`, the sweeper and a trigger make expiry impossible | IT |
+| 10 | Duplicate webhooks | Unique event id; one outbox row and one ledger `CAPTURE` per payment | IT |
+| 11 | Webhooks out of order | Events that don't fit the current state are recorded and ignored | IT |
+| 12 | Webhook before we know the intent | Stored as an orphan, answered `200`, retried every 10 s | IT |
+| 13 | Authorization after we timed out | Voided, never captured; reservation stays `FAILED` | IT |
+| 14 | Capture call fails | Outbox retries with backoff (up to 12 times), then alerts. Seat stays `CONFIRMED` | Observed; [runbook](../operations/runbook.md) |
+| 15 | Provider down at checkout | Payment row saved first; reconciliation looks it up later and settles it within 10 min | IT |
+| 16 | Forged webhook | HMAC-SHA256 on the raw body → `401` | IT, UT |
+
+## Failures and recovery
+
+| # | Case | How it's handled | Proof |
+|---|---|---|---|
+| 17 | Client retries or times out | Idempotency keys (24 h); one payment per reservation | IT, UT |
+| 18 | App crashes mid-request | Transactions roll back; stuck idempotency keys free after 60 s; outbox leases return work | UT |
+| 19 | KYC slow or down | 1.5 s timeout, circuit breaker, cache. Booking fails closed (`503`); browsing works | UT |
+| 20 | Redis down | Redis is never the source of truth. Gate and rate limiter fail open; PostgreSQL decides | Code review |
+| 21 | Buggy code tries an illegal transition | Database triggers reject it; ledger and audit are append-only | IT |
+
+## Sessions and caching
+
+| # | Case | How it's handled | Proof |
+|---|---|---|---|
+| 22 | Token reused after logout | Token id on a Redis denylist; "all sessions" bumps a version stored in PostgreSQL | IT |
+| 23 | Logout sent twice | Always `204` | IT |
+| 24 | Redis down: can't check the denylist | Reads continue; reserve and checkout return `503`. Nobody is logged out | IT |
+| 25 | Redis down during logout | Upgraded to "all sessions" (safe: revokes more, not less) | IT |
+| 26 | "Log out everywhere" across instances | Takes effect within 5 s on other instances | [ADR-0012](../architecture/adr/0012-token-revocation.md) |
+| 27 | `304` hiding a real seat change | ETag is computed from the visible content, and the seat-map cache is cleared on every change | IT |
+| 28 | `/similar` for a brand-new Jameya | Read directly from the database until the next snapshot | IT |
+
+Frontend edge cases: [frontend/edge-cases.md](../frontend/edge-cases.md).
