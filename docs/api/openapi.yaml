@@ -1,7 +1,7 @@
 openapi: 3.0.3
 info:
   title: Pokunity API
-  version: 1.0.0
+  version: 1.1.0
   description: >
     Pokunity (Pocket Community) Jameya marketplace API. Human-readable docs with
     samples live next to this file (README.md, auth.md, jameyas.md, reservations.md,
@@ -41,16 +41,38 @@ paths:
         '401': { $ref: '#/components/responses/Error' }
         '429': { $ref: '#/components/responses/Error' }
 
+  /auth/logout:
+    post:
+      tags: [Auth]
+      summary: Revoke this session (jti denylist) or all sessions (token version bump)
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                allSessions: { type: boolean, default: false }
+      responses:
+        '204': { description: Revoked (idempotent) }
+        '401': { $ref: '#/components/responses/Error' }
+        '429': { $ref: '#/components/responses/Error' }
+
   /me:
     get:
       tags: [Auth]
       summary: Current user profile, eligibility and limits
+      parameters: [ { $ref: '#/components/parameters/IfNoneMatch' } ]
       responses:
         '200':
+          headers:
+            ETag: { $ref: '#/components/headers/ETag' }
+            X-As-Of: { $ref: '#/components/headers/XAsOf' }
           description: Profile
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Me' }
+        '304': { $ref: '#/components/responses/NotModified' }
         '401': { $ref: '#/components/responses/Error' }
 
   /jameyas:
@@ -66,8 +88,12 @@ paths:
         - { name: availableOnly, in: query, schema: { type: boolean, default: true } }
         - { name: page, in: query, schema: { type: integer, minimum: 1, default: 1 } }
         - { name: pageSize, in: query, schema: { type: integer, minimum: 1, maximum: 50, default: 20 } }
+        - { $ref: '#/components/parameters/IfNoneMatch' }
       responses:
         '200':
+          headers:
+            ETag: { $ref: '#/components/headers/ETag' }
+            X-As-Of: { $ref: '#/components/headers/XAsOf' }
           description: Page of Jameyas
           content:
             application/json:
@@ -78,14 +104,19 @@ paths:
                   data: { type: array, items: { $ref: '#/components/schemas/JameyaSummary' } }
                   meta: { $ref: '#/components/schemas/ListMeta' }
         '400': { $ref: '#/components/responses/Error' }
+        '304': { $ref: '#/components/responses/NotModified' }
         '401': { $ref: '#/components/responses/Error' }
 
   /jameyas/featured:
     get:
       tags: [Jameyas]
       summary: Marketing-featured Jameyas (max 10)
+      parameters: [ { $ref: '#/components/parameters/IfNoneMatch' } ]
       responses:
         '200':
+          headers:
+            ETag: { $ref: '#/components/headers/ETag' }
+            X-As-Of: { $ref: '#/components/headers/XAsOf' }
           description: Featured list
           content:
             application/json:
@@ -97,19 +128,55 @@ paths:
                   meta:
                     type: object
                     properties: { asOf: { type: string, format: date-time } }
+        '304': { $ref: '#/components/responses/NotModified' }
         '401': { $ref: '#/components/responses/Error' }
 
   /jameyas/{id}:
     get:
       tags: [Jameyas]
       summary: Jameya detail with viewer-specific seat map
-      parameters: [ { $ref: '#/components/parameters/IdPath' } ]
+      parameters:
+        - { $ref: '#/components/parameters/IdPath' }
+        - { $ref: '#/components/parameters/IfNoneMatch' }
       responses:
         '200':
+          headers:
+            ETag: { $ref: '#/components/headers/ETag' }
+            X-As-Of: { $ref: '#/components/headers/XAsOf' }
           description: Detail
           content:
             application/json:
               schema: { $ref: '#/components/schemas/JameyaDetail' }
+        '304': { $ref: '#/components/responses/NotModified' }
+        '401': { $ref: '#/components/responses/Error' }
+        '404': { $ref: '#/components/responses/Error' }
+
+  /jameyas/{id}/similar:
+    get:
+      tags: [Jameyas]
+      summary: Up to 5 similar open Jameyas (for JAMEYA_FULL and recommendations)
+      parameters:
+        - { $ref: '#/components/parameters/IdPath' }
+        - { $ref: '#/components/parameters/IfNoneMatch' }
+      responses:
+        '200':
+          description: Similar Jameyas (may be empty)
+          headers:
+            ETag: { $ref: '#/components/headers/ETag' }
+            X-As-Of: { $ref: '#/components/headers/XAsOf' }
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data: { type: array, maxItems: 5, items: { $ref: '#/components/schemas/JameyaSummary' } }
+                  meta:
+                    type: object
+                    properties:
+                      asOf: { type: string, format: date-time }
+                      experiment: { $ref: '#/components/schemas/Experiment' }
+        '304': { $ref: '#/components/responses/NotModified' }
         '401': { $ref: '#/components/responses/Error' }
         '404': { $ref: '#/components/responses/Error' }
 
@@ -145,29 +212,49 @@ paths:
           style: form
           explode: true
           schema: { type: array, items: { $ref: '#/components/schemas/ReservationStatus' } }
+        - { name: page, in: query, schema: { type: integer, minimum: 1, default: 1 } }
+        - { name: pageSize, in: query, schema: { type: integer, minimum: 1, maximum: 50, default: 20 } }
+        - { $ref: '#/components/parameters/IfNoneMatch' }
       responses:
         '200':
-          description: Reservations
+          description: Reservations, newest first
+          headers:
+            ETag: { $ref: '#/components/headers/ETag' }
+            X-As-Of: { $ref: '#/components/headers/XAsOf' }
           content:
             application/json:
               schema:
                 type: object
-                required: [data]
+                required: [data, meta]
                 properties:
                   data: { type: array, items: { $ref: '#/components/schemas/Reservation' } }
+                  meta:
+                    type: object
+                    required: [page, pageSize, total]
+                    properties:
+                      page: { type: integer }
+                      pageSize: { type: integer }
+                      total: { type: integer }
+        '304': { $ref: '#/components/responses/NotModified' }
         '401': { $ref: '#/components/responses/Error' }
 
   /reservations/{id}:
     get:
       tags: [Reservations]
       summary: Authoritative reservation status (poll target)
-      parameters: [ { $ref: '#/components/parameters/IdPath' } ]
+      parameters:
+        - { $ref: '#/components/parameters/IdPath' }
+        - { $ref: '#/components/parameters/IfNoneMatch' }
       responses:
         '200':
+          headers:
+            ETag: { $ref: '#/components/headers/ETag' }
+            X-As-Of: { $ref: '#/components/headers/XAsOf' }
           description: Reservation
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Reservation' }
+        '304': { $ref: '#/components/responses/NotModified' }
         '401': { $ref: '#/components/responses/Error' }
         '403': { $ref: '#/components/responses/Error' }
         '404': { $ref: '#/components/responses/Error' }
@@ -297,13 +384,32 @@ components:
       in: path
       required: true
       schema: { type: string, format: uuid }
+    IfNoneMatch:
+      name: If-None-Match
+      in: header
+      required: false
+      description: ETag from a previous 200; unchanged content → 304
+      schema: { type: string }
     IdempotencyKey:
       name: Idempotency-Key
       in: header
       required: true
       schema: { type: string, format: uuid }
 
+  headers:
+    ETag:
+      description: Weak ETag computed from content without volatile timestamps
+      schema: { type: string, example: 'W/"RbyrjBNhdyCO9m91YvKPFzvHivY"' }
+    XAsOf:
+      description: When the server last verified this data (sent on 200 and 304)
+      schema: { type: string, format: date-time }
+
   responses:
+    NotModified:
+      description: Content unchanged since the ETag in If-None-Match (no body)
+      headers:
+        ETag: { $ref: '#/components/headers/ETag' }
+        X-As-Of: { $ref: '#/components/headers/XAsOf' }
     Error:
       description: Error envelope
       content:
@@ -320,6 +426,7 @@ components:
     PaymentStatus: { type: string, enum: [AUTHORIZING, AUTHORIZED, CAPTURED, VOIDED, FAILED] }
     JameyaBadge: { type: string, enum: [FEATURED, ALMOST_FULL, STARTING_SOON, NEW, BEST_MATCH] }
     RestrictionReason: { type: string, enum: [KYC_REQUIRED, RISK_TIER, KYC_UNAVAILABLE] }
+    BlockingReason: { type: string, enum: [KYC_REQUIRED, RISK_TIER, KYC_UNAVAILABLE, HOLD_LIMIT] }
     FailureReason: { type: string, enum: [PAYMENT_DECLINED, PAYMENT_TIMEOUT, HOLD_EXPIRED, SEAT_CONFLICT] }
 
     ErrorCode:
@@ -327,7 +434,8 @@ components:
       enum: [VALIDATION_ERROR, UNAUTHORIZED, INVALID_CREDENTIALS, INVALID_SIGNATURE, KYC_REQUIRED,
              RISK_RESTRICTED, FORBIDDEN, NOT_FOUND, SEAT_UNAVAILABLE, JAMEYA_FULL,
              ACTIVE_RESERVATION_EXISTS, HOLD_LIMIT_REACHED, INVALID_STATE, IDEMPOTENCY_IN_PROGRESS,
-             RESERVATION_EXPIRED, IDEMPOTENCY_KEY_REUSED, RATE_LIMITED, KYC_UNAVAILABLE, INTERNAL_ERROR]
+             RESERVATION_EXPIRED, IDEMPOTENCY_KEY_REUSED, RATE_LIMITED, KYC_UNAVAILABLE, INTERNAL_ERROR,
+             SERVICE_UNAVAILABLE, UPSTREAM_TIMEOUT]
 
     ErrorResponse:
       type: object
@@ -458,9 +566,10 @@ components:
                 canReserve: { type: boolean }
                 blockingReason:
                   type: string
-                  allOf: [ { $ref: '#/components/schemas/RestrictionReason' } ]
+                  allOf: [ { $ref: '#/components/schemas/BlockingReason' } ]
                   nullable: true
                 activeReservationId: { type: string, format: uuid, nullable: true }
+            experiment: { $ref: '#/components/schemas/Experiment' }
 
     CreateReservationRequest:
       type: object
@@ -486,6 +595,11 @@ components:
         status: { $ref: '#/components/schemas/PaymentStatus' }
         amount: { $ref: '#/components/schemas/Money' }
         currency: { $ref: '#/components/schemas/Currency' }
+        resolveBy:
+          type: string
+          format: date-time
+          nullable: true
+          description: Reconciliation deadline while PAYMENT_PENDING; null once terminal
 
     Reservation:
       type: object
@@ -531,7 +645,7 @@ components:
         type: { type: string, enum: [impression, click, seat_selected, checkout_started] }
         jameyaId: { type: string, format: uuid }
         position: { type: integer, nullable: true }
-        surface: { type: string, enum: [marketplace_list, featured_carousel, jameya_detail] }
+        surface: { type: string, enum: [marketplace_list, featured_carousel, jameya_detail, checkout] }
         experiment: { $ref: '#/components/schemas/Experiment' }
         occurredAt: { type: string, format: date-time }
 

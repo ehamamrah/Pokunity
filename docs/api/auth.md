@@ -29,6 +29,39 @@ Content-Type: application/json
 
 ---
 
+## POST `/api/v1/auth/logout` (v1.1)
+
+Revokes the caller's session. Every access token carries a unique `jti`; logout puts it on a
+**denylist** (Redis, TTL = the token's remaining lifetime), so the token is rejected with
+`401 UNAUTHORIZED` from then on — even if it was copied elsewhere.
+
+**Request**
+```http
+POST /api/v1/auth/logout
+Authorization: Bearer <jwt>
+Content-Type: application/json
+
+{ "allSessions": false }
+```
+
+| Field | Type | Default | Meaning |
+|---|---|---|---|
+| `allSessions` | bool | `false` | `true` revokes **every** token of this member (all devices) by bumping the member's token version. |
+
+The body is optional (`{}` or no body = this session only).
+
+**204 No Content** — always, also when the token was already revoked (idempotent).
+
+**401** `UNAUTHORIZED` (no/invalid token) · **429** `RATE_LIMITED`
+
+**Notes**
+- Revocation is checked on every authenticated request. If the denylist store is unavailable, the
+  server still enforces the member's token version (`allSessions` logouts) from PostgreSQL and
+  fails **closed** for tokens it cannot verify only on money-moving endpoints (reserve, checkout).
+- The BFF calls this endpoint, then deletes its httpOnly session cookie.
+
+---
+
 ## GET `/api/v1/me`
 
 Returns the viewer's profile, eligibility, and limits. The frontend uses this to decide

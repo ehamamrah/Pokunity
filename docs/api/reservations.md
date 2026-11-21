@@ -47,7 +47,14 @@ therefore no refund.
 
 - `fee` is **locked at hold time**; later price changes don't affect this reservation.
 - `expiresAt` is meaningful only while `HELD` (UI shows a countdown).
-- `payment` (when present): `{ "id": "uuid", "status": "PaymentStatus", "amount": int, "currency": "SAR" }`.
+- `payment` (when present): `{ "id": "uuid", "status": "PaymentStatus", "amount": int, "currency": "SAR", "resolveBy": "ISO datetime | null" }`.
+- `payment.resolveBy` (v1.1): latest time by which a `PAYMENT_PENDING` reservation is guaranteed to
+  reach a terminal status (reconciliation deadline, `payment.createdAt + 10 min`). `null` once terminal.
+  The UI uses it for "still confirming — at the latest by HH:MM".
+- `payment.status` after a failure (v1.1, explicit): a **decline** → `FAILED` (nothing was authorized,
+  so nothing to void); a payment that never authorized before the deadline → `FAILED`; an
+  authorization that arrives after the reservation already failed is voided → `VOIDED`.
+  In every case the member was **not charged**.
 - `failureReason` (when `FAILED`/`EXPIRED`): `PAYMENT_DECLINED`, `PAYMENT_TIMEOUT`, `HOLD_EXPIRED`, `SEAT_CONFLICT`.
 - Zero-fee seats still go through checkout, but no payment is created: checkout returns **200** with `status: "CONFIRMED"` and `payment: null`.
 
@@ -99,11 +106,18 @@ Lists the viewer's reservations, newest first.
 | Param | Type | Notes |
 |---|---|---|
 | `status` | `ReservationStatus` (optional, repeatable) | e.g. `?status=HELD&status=PAYMENT_PENDING` |
+| `page` | int, default 1 | v1.1 |
+| `pageSize` | int, default 20, max 50 | v1.1 |
 
 **200 OK**
 ```json
-{ "data": [ { "...": "Reservation" } ] }
+{
+  "data": [ { "...": "Reservation" } ],
+  "meta": { "page": 1, "pageSize": 20, "total": 3 }
+}
 ```
+
+`meta` is new in v1.1 (additive). Clients that ignore it see the first 20 reservations, newest first.
 
 ---
 

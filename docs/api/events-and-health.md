@@ -36,7 +36,7 @@ Content-Type: application/json
 | Field | Values |
 |---|---|
 | `type` | `impression`, `click`, `seat_selected`, `checkout_started` |
-| `surface` | `marketplace_list`, `featured_carousel`, `jameya_detail` |
+| `surface` | `marketplace_list`, `featured_carousel`, `jameya_detail`, `checkout` (v1.1, reservation/checkout page) |
 | `position` | 1-based rank in list (null for detail) |
 
 Max 50 events per request. Server-side funnel events (`reservation_created`, `reservation_confirmed`) are recorded by the backend itself.

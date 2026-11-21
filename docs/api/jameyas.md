@@ -155,7 +155,8 @@ Authorization: Bearer <jwt>
     "canReserve": true,
     "blockingReason": null,
     "activeReservationId": null
-  }
+  },
+  "experiment": { "key": "ranking_v2", "variant": "treatment" }
 }
 ```
 
@@ -165,6 +166,39 @@ Authorization: Bearer <jwt>
 - `HELD` seats may become `AVAILABLE` again when the hold expires. UI should show them as "on hold".
 - `heldByViewer: true` marks the viewer's own hold (UI links to that reservation).
 - `restricted: true` → seat is not reservable by this viewer; UI greys it out with the reason.
-- `viewer.blockingReason` is a `RestrictionReason` (e.g. `KYC_REQUIRED`) when the viewer cannot reserve any seat.
+- `viewer.blockingReason` explains `canReserve: false`: a `RestrictionReason` (e.g. `KYC_REQUIRED`) or, since v1.1,
+  `HOLD_LIMIT` when the viewer already holds the maximum number of seats (see `/me` → `limits`).
+  `canReserve: false` with `blockingReason: null` means either `activeReservationId` is set (the viewer
+  already holds a seat here) or no unrestricted seat is available.
+- `experiment` (v1.1) is the viewer's ranking A/B assignment, so deep-linked detail views can attribute events.
 
-**404** `NOT_FOUND` · **401** `UNAUTHORIZED`
+**404** `NOT_FOUND` · **401** `UNAUTHORIZED` · **304** when `If-None-Match` matches (see [conditional requests](README.md#conditional-requests-etag-and-freshness))
+
+---
+
+## GET `/api/v1/jameyas/{id}/similar` (v1.1)
+
+Up to **5** open Jameyas similar to `{id}`, used when a Jameya is full (`409 JAMEYA_FULL`) or as
+"you may also like". Excludes `{id}` itself, full Jameyas, and Jameyas that have already started.
+
+**Similarity** (ranked by the viewer's ranking variant as a tie-breaker): same `durationMonths`
+± 2, `monthlyAmount` within ± 25 %, then closest `startDate`.
+
+**Request**
+```http
+GET /api/v1/jameyas/5f8a1c3e-2b4d-4e6f-8a9b-0c1d2e3f4a5b/similar
+Authorization: Bearer <jwt>
+```
+
+**200 OK**
+```json
+{
+  "data": [ { "...": "JameyaSummary (same shape as GET /jameyas)" } ],
+  "meta": {
+    "asOf": "2026-11-21T10:00:03.000Z",
+    "experiment": { "key": "ranking_v2", "variant": "treatment" }
+  }
+}
+```
+
+An empty `data` array is valid (nothing similar right now). **404** `NOT_FOUND` · **401** `UNAUTHORIZED` · **304**
