@@ -19,6 +19,7 @@ export const ErrorCode = {
   RATE_LIMITED: 'RATE_LIMITED',
   KYC_UNAVAILABLE: 'KYC_UNAVAILABLE',
   INTERNAL_ERROR: 'INTERNAL_ERROR',
+  SERVICE_UNAVAILABLE: 'SERVICE_UNAVAILABLE',
 } as const;
 
 export type ErrorCode = (typeof ErrorCode)[keyof typeof ErrorCode];
@@ -43,4 +44,5 @@ export const HttpStatusByCode: Record<ErrorCode, number> = {
   RATE_LIMITED: 429,
   KYC_UNAVAILABLE: 503,
   INTERNAL_ERROR: 500,
+  SERVICE_UNAVAILABLE: 503,
 };

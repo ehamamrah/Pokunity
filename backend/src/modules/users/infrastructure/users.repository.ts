@@ -14,6 +14,7 @@ interface UserRow {
   expired_holds_count: number;
   confirmed_count: number;
   confirmed_monthly_total: number;
+  token_version: number;
 }
 
 export type UserRecord = UserProfile & {
@@ -29,6 +30,8 @@ const SELECT_USER = `
   FROM users u LEFT JOIN user_behavior b ON b.user_id = u.id`;
 
 const USER_BY_ID = namedSql('users_by_id', `${SELECT_USER} WHERE u.id = $1`);
+
+const TOKEN_VERSION_SQL = namedSql('users_token_version', 'SELECT token_version FROM users WHERE id = $1');
 
 const BUMP_EXPIRED_SQL = `
   INSERT INTO user_behavior (user_id, expired_holds_count)
@@ -51,12 +54,23 @@ export class UsersRepository {
   async findCredentialsByEmail(email: string): Promise<UserCredentials | null> {
     const { rows } = await this.db.query<UserRow>(`${SELECT_USER} WHERE u.email = $1`, [email.toLowerCase()]);
     const row = rows[0];
-    return row ? { id: row.id, name: row.name, email: row.email, passwordHash: row.password_hash } : null;
+    return row ? { id: row.id, name: row.name, email: row.email, passwordHash: row.password_hash, tokenVersion: row.token_version } : null;
   }
 
   async findById(id: string): Promise<UserRecord | null> {
     const { rows } = await this.db.query<UserRow>(USER_BY_ID, [id]);
     return rows[0] ? toRecord(rows[0]) : null;
+  }
+
+  async tokenVersion(userId: string): Promise<number | null> {
+    const { rows } = await this.db.query<{ token_version: number }>(TOKEN_VERSION_SQL, [userId]);
+    return rows[0]?.token_version ?? null;
+  }
+
+  async bumpTokenVersion(userId: string): Promise<number> {
+    const { rows } = await this.db.query<{ token_version: number }>(
+      'UPDATE users SET token_version = token_version + 1 WHERE id = $1 RETURNING token_version', [userId]);
+    return rows[0].token_version;
   }
 
   async incrementExpiredHolds(executor: SqlExecutor, userIds: string[]): Promise<void> {

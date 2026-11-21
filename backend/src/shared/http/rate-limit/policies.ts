@@ -11,6 +11,7 @@ export interface RateLimitPolicy {
 export const RateLimits = {
   loginPerIp: { name: 'login-ip', limit: 5, windowSeconds: 60, by: 'ip' },
   loginPerEmail: { name: 'login-email', limit: 10, windowSeconds: 900, by: 'email' },
+  logout: { name: 'logout', limit: 10, windowSeconds: 60, by: 'user' },
   reservationCreate: { name: 'reservation-create', limit: 5, windowSeconds: 10, by: 'user' },
   reservationCheckout: { name: 'reservation-checkout', limit: 10, windowSeconds: 60, by: 'user' },
   reservationCancel: { name: 'reservation-cancel', limit: 10, windowSeconds: 10, by: 'user' },

@@ -27,7 +27,7 @@ export class AuthService {
     if (!user || !valid) {
       throw new AppError(ErrorCode.INVALID_CREDENTIALS, 'Email or password is incorrect.');
     }
-    const accessToken = await this.tokens.issue({ id: user.id, email: user.email });
+    const accessToken = await this.tokens.issue({ id: user.id, email: user.email }, user.tokenVersion);
     return { accessToken, expiresIn: this.tokens.ttlSeconds, user: { id: user.id, name: user.name, email: user.email } };
   }
 }

@@ -71,6 +71,16 @@ export class UsersFacade {
     return this.repository.recordConfirmed(executor, userId, monthlyAmount);
   }
 
+  /** Current session generation of a member (null = unknown member). */
+  tokenVersionOf(userId: string): Promise<number | null> {
+    return this.repository.tokenVersion(userId);
+  }
+
+  /** "Log out everywhere": every token issued before this call becomes invalid. */
+  revokeAllSessions(userId: string): Promise<number> {
+    return this.repository.bumpTokenVersion(userId);
+  }
+
   kycHealth(): 'up' | 'degraded' {
     return this.kyc.providerHealth;
   }

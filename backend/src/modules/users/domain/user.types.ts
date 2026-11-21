@@ -22,6 +22,7 @@ export interface UserCredentials {
   name: string;
   email: string;
   passwordHash: string;
+  tokenVersion: number;
 }
 
 export interface Eligibility {

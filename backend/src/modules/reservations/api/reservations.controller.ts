@@ -1,6 +1,7 @@
 import { Body, Controller, Delete, Get, Header, Param, ParseUUIDPipe, Post, Query, Res, UseGuards, UseInterceptors } from '@nestjs/common';
 import { Response } from 'express';
 import { Errors } from '../../../shared/errors/app-error';
+import { SessionPolicy } from '../../../shared/http/public.decorator';
 import { Conditional, conditionalFromBody } from '../../../shared/http/conditional';
 import { ConditionalGetInterceptor } from '../../../shared/http/conditional-get.interceptor';
 import { AuthenticatedUser, CurrentUser } from '../../../shared/http/current-user.decorator';
@@ -27,6 +28,7 @@ export class ReservationsController {
   ) {}
 
   @Post()
+  @SessionPolicy('strict')
   @RateLimit(RateLimits.reservationCreate)
   @UseInterceptors(IdempotencyInterceptor)
   reserve(@CurrentUser() user: AuthenticatedUser, @Body() body: CreateReservationDto) {
@@ -51,6 +53,7 @@ export class ReservationsController {
   }
 
   @Post(':id/checkout')
+  @SessionPolicy('strict')
   @RateLimit(RateLimits.reservationCheckout)
   @UseInterceptors(IdempotencyInterceptor)
   async checkout(

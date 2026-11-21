@@ -16,10 +16,16 @@ afterAll(() => h.close());
 
 const get = (path: string, m: Member = viewer) => h.http.get(path).set('Authorization', `Bearer ${m.token}`);
 
-/** Warm caches (snapshot, KYC) with one call, then count the queries of an identical call. */
+/**
+ * Warm caches (snapshot, KYC, session version) with one call, flush buffered analytics (background
+ * writes must not be attributed to the request), then count the queries of an identical call.
+ */
 async function queriesOf(path: string, m: Member = viewer): Promise<number> {
   await get(path, m).expect(200);
-  return (await countQueries(() => get(path, m).expect(200))).count;
+  await h.app.get(BufferedEventWriter).flush();
+  const counted = await countQueries(() => get(path, m).expect(200));
+  if (process.env.DEBUG_QUERIES) console.error(path, counted.statements);
+  return counted.count;
 }
 
 test('GET /jameyas issues the same (constant) number of queries for 5 or 50 items', async () => {
