@@ -12,8 +12,9 @@ export async function login(credentials: LoginCredentials) {
   return data;
 }
 
-export async function logout(): Promise<void> {
-  await sessionClient.delete('/session', z.unknown());
+/** Revokes this session, or every session of the member. The BFF clears its cookie either way. */
+export async function logout(allSessions: boolean): Promise<void> {
+  await sessionClient.delete('/session', z.unknown(), { body: { allSessions } });
 }
 
 export async function fetchMe(client: ApiClient = apiClient) {

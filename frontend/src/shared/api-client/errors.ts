@@ -19,6 +19,8 @@ export const API_ERROR_CODES = [
   'RATE_LIMITED',
   'KYC_UNAVAILABLE',
   'INTERNAL_ERROR',
+  'SERVICE_UNAVAILABLE',
+  'UPSTREAM_TIMEOUT',
 ] as const;
 
 export type ApiErrorCode = (typeof API_ERROR_CODES)[number];

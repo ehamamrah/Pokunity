@@ -21,6 +21,8 @@ const DEFAULT_MESSAGES: Record<ApiErrorCode, string> = {
   RATE_LIMITED: 'Too many requests. Please wait a moment.',
   KYC_UNAVAILABLE: 'Identity verification is temporarily unavailable.',
   INTERNAL_ERROR: 'Something went wrong on our side. Please try again.',
+  SERVICE_UNAVAILABLE: 'Pokunity is temporarily unavailable. Please try again shortly.',
+  UPSTREAM_TIMEOUT: 'That took too long. Please try again.',
 };
 
 /** Retry-After may be delta-seconds or an HTTP date. */
@@ -39,6 +41,8 @@ function codeFromStatus(status: number): ApiErrorCode {
     403: 'FORBIDDEN',
     404: 'NOT_FOUND',
     429: 'RATE_LIMITED',
+    503: 'SERVICE_UNAVAILABLE',
+    504: 'UPSTREAM_TIMEOUT',
   };
   return byStatus[status] ?? 'INTERNAL_ERROR';
 }

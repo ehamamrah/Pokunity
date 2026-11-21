@@ -61,15 +61,15 @@ export async function callBackend(path: string, request: BackendRequest): Promis
 /** Maps a non-response outcome onto the contract error envelope (503 + Retry-After, or 504). */
 export function unavailableResponse(outcome: BackendOutcome, requestId: string): NextResponse | null {
   if (outcome.kind === 'open') {
-    return errorResponse(503, 'INTERNAL_ERROR', 'The service is recovering. Please try again shortly.', requestId, {
+    return errorResponse(503, 'SERVICE_UNAVAILABLE', 'The service is recovering. Please try again shortly.', requestId, {
       'Retry-After': String(outcome.retryAfterSeconds),
     });
   }
   if (outcome.kind === 'timeout') {
-    return errorResponse(504, 'INTERNAL_ERROR', 'The service took too long to respond. Please try again.', requestId);
+    return errorResponse(504, 'UPSTREAM_TIMEOUT', 'The service took too long to respond. Please try again.', requestId);
   }
   if (outcome.kind === 'unavailable') {
-    return errorResponse(503, 'INTERNAL_ERROR', 'The service is temporarily unavailable. Please try again.', requestId);
+    return errorResponse(503, 'SERVICE_UNAVAILABLE', 'The service is temporarily unavailable. Please try again.', requestId);
   }
   return null;
 }

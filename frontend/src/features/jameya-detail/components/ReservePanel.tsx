@@ -6,7 +6,8 @@ import type { JameyaDetail, Seat } from '@/shared/contract';
 import { formatFee } from '@/shared/lib/money';
 import { formatPayoutMonth } from '@/shared/lib/time';
 import { Alert, Button } from '@/shared/ui';
-import { restrictionCopy } from '../model/seat-presentation';
+import { blockingCopy } from '../model/seat-presentation';
+import { useMe } from '@/features/auth';
 
 function SeatSummary({ seat }: { seat: Seat | null }) {
   if (!seat) return <p className="text-sm text-slate-600">Pick an available seat on the map.</p>;
@@ -23,10 +24,11 @@ function SeatSummary({ seat }: { seat: Seat | null }) {
 }
 
 function ViewerNotices({ detail, seat }: { detail: JameyaDetail; seat: Seat | null }) {
+  const me = useMe();
   return (
     <>
       {detail.viewer.blockingReason && !seat ? (
-        <Alert tone="warning" title="You cannot reserve yet">{restrictionCopy(detail.viewer.blockingReason)}</Alert>
+        <Alert tone="warning" title="You cannot reserve yet">{blockingCopy(detail.viewer.blockingReason, me.data?.limits.maxActiveHolds ?? null)}</Alert>
       ) : null}
       {detail.viewer.activeReservationId ? (
         <Link prefetch={false} href={`/reservations/${detail.viewer.activeReservationId}`} className="text-sm font-semibold text-teal-800 underline">

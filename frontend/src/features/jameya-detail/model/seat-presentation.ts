@@ -1,6 +1,6 @@
 import { formatFee } from '@/shared/lib/money';
 import { formatPayoutMonth } from '@/shared/lib/time';
-import type { RestrictionReason, Seat } from '@/shared/contract';
+import type { BlockingReason, RestrictionReason, Seat } from '@/shared/contract';
 
 export type SeatKind = 'holding' | 'yours' | 'taken' | 'restricted' | 'on_hold' | 'available';
 
@@ -19,6 +19,16 @@ const RESTRICTION_COPY: Record<RestrictionReason, string> = {
   RISK_TIER: 'Not open to your risk profile',
   KYC_UNAVAILABLE: 'Verification temporarily unavailable',
 };
+
+/** Why the viewer cannot reserve at all. HOLD_LIMIT uses the viewer's real limit from /me. */
+export function blockingCopy(reason: BlockingReason, maxActiveHolds: number | null): string {
+  if (reason === 'HOLD_LIMIT') {
+    return maxActiveHolds === null
+      ? 'You have reached your limit of seats on hold. Release one to hold another.'
+      : `You have reached your limit of ${maxActiveHolds} seats on hold. Release one to hold another.`;
+  }
+  return restrictionCopy(reason);
+}
 
 export function restrictionCopy(reason: RestrictionReason | null): string {
   return reason ? RESTRICTION_COPY[reason] : 'Not available to you';

@@ -14,7 +14,9 @@ export function isAutoRetryableWrite(error: unknown): boolean {
   return (
     error.code === 'IDEMPOTENCY_IN_PROGRESS' ||
     error.code === 'RATE_LIMITED' ||
-    error.code === 'INTERNAL_ERROR'
+    error.code === 'INTERNAL_ERROR' ||
+    error.code === 'SERVICE_UNAVAILABLE' ||
+    error.code === 'UPSTREAM_TIMEOUT'
   );
 }
 

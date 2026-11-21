@@ -11,6 +11,7 @@ import type {
   reservationSchema,
   reservationStatusSchema,
   restrictionReasonSchema,
+  blockingReasonSchema,
   riskTierSchema,
   seatSchema,
   seatStatusSchema,
@@ -26,6 +27,7 @@ export type ReservationStatus = z.infer<typeof reservationStatusSchema>;
 export type FailureReason = z.infer<typeof failureReasonSchema>;
 export type JameyaBadge = z.infer<typeof jameyaBadgeSchema>;
 export type RestrictionReason = z.infer<typeof restrictionReasonSchema>;
+export type BlockingReason = z.infer<typeof blockingReasonSchema>;
 export type Experiment = z.infer<typeof experimentSchema>;
 export type ListMeta = z.infer<typeof listMetaSchema>;
 export type JameyaSummary = z.infer<typeof jameyaSummarySchema>;

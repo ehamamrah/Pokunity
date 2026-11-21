@@ -60,6 +60,13 @@ export class EventBatcher {
     if (this.queue.length > 0) this.scheduleFlush();
   }
 
+  /** Drops everything queued, e.g. on sign-out, so no event from one session is sent under another. */
+  clear(): void {
+    this.clearTimer();
+    this.queue = [];
+    this.failures = 0;
+  }
+
   /** Called on pagehide / hidden. Synchronous and fire-and-forget by design. */
   flushOnHide(): void {
     this.clearTimer();

@@ -1,6 +1,7 @@
 'use client';
 
 import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { analytics } from '@/features/analytics';
 import { redirectToLogin } from '@/shared/lib/navigation';
 import { login, logout } from './auth-api';
 
@@ -17,12 +18,18 @@ export function useLogin(onSuccess: () => void) {
   });
 }
 
+/** Ends the local session: nothing from this member may survive in memory or in the analytics queue. */
+function endSession(queryClient: ReturnType<typeof useQueryClient>): void {
+  queryClient.clear();
+  analytics.reset();
+}
+
 export function useLogout() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: logout,
+    mutationFn: (allSessions: boolean) => logout(allSessions),
     onSettled: () => {
-      queryClient.clear();
+      endSession(queryClient);
       redirectToLogin('signed_out');
     },
   });

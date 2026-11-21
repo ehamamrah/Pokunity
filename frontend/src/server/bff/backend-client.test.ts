@@ -20,7 +20,7 @@ it('answers a timeout with 504 and a contract error envelope', async () => {
   const response = unavailableResponse({ kind: 'timeout' }, 'req-2');
   expect(response?.status).toBe(504);
   const body = (await response?.json()) as { error: { code: string; traceId: string } };
-  expect(body.error.code).toBe('INTERNAL_ERROR');
+  expect(body.error.code).toBe('UPSTREAM_TIMEOUT');
   expect(body.error.traceId).toBe('req-2');
 });
 

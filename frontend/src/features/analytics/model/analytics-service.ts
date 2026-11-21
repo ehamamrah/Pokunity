@@ -7,6 +7,7 @@ export interface AnalyticsService {
   flush(): Promise<void>;
   flushOnHide(): void;
   pending(): number;
+  reset(): void;
 }
 
 /** Remembers the most recent list assignment so detail and checkout events share its variant. */
@@ -31,6 +32,7 @@ function toService(batcher: EventBatcher, attribution: Attribution, clock: () =>
     flush: () => batcher.flush(),
     flushOnHide: () => batcher.flushOnHide(),
     pending: () => batcher.pending(),
+    reset: () => batcher.clear(),
   };
 }
 

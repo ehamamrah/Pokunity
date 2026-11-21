@@ -27,6 +27,8 @@ export const reservationStatusSchema = z.enum([
 export const paymentStatusSchema = z.enum(['AUTHORIZING', 'AUTHORIZED', 'CAPTURED', 'VOIDED', 'FAILED']);
 export const jameyaBadgeSchema = z.enum(['FEATURED', 'ALMOST_FULL', 'STARTING_SOON', 'NEW', 'BEST_MATCH']);
 export const restrictionReasonSchema = z.enum(['KYC_REQUIRED', 'RISK_TIER', 'KYC_UNAVAILABLE']);
+/** v1.1: a viewer can be blocked by the hold limit as well as by a restriction. */
+export const blockingReasonSchema = z.enum(['KYC_REQUIRED', 'RISK_TIER', 'KYC_UNAVAILABLE', 'HOLD_LIMIT']);
 export const failureReasonSchema = z.enum([
   'PAYMENT_DECLINED',
   'PAYMENT_TIMEOUT',
@@ -132,9 +134,16 @@ export const jameyaDetailSchema = jameyaSummarySchema.extend({
   seats: z.array(seatSchema),
   viewer: z.object({
     canReserve: z.boolean(),
-    blockingReason: restrictionReasonSchema.nullable(),
+    blockingReason: blockingReasonSchema.nullable(),
     activeReservationId: uuid.nullable(),
   }),
+  /** v1.1: the viewer's A/B assignment, so deep links can attribute events. */
+  experiment: experimentSchema.optional(),
+});
+
+export const similarListSchema = z.object({
+  data: z.array(jameyaSummarySchema),
+  meta: z.object({ asOf: isoDateTime, experiment: experimentSchema.optional() }),
 });
 
 export const paymentSummarySchema = z.object({
@@ -142,6 +151,8 @@ export const paymentSummarySchema = z.object({
   status: paymentStatusSchema,
   amount: moneySchema,
   currency: currencySchema,
+  /** v1.1: latest time the outcome is guaranteed; null once terminal. */
+  resolveBy: isoDateTime.nullish(),
 });
 
 export const reservationSchema = z.object({
@@ -160,8 +171,16 @@ export const reservationSchema = z.object({
   updatedAt: isoDateTime,
 });
 
+/** v1.1 reservation pagination meta (no asOf: reservations are never cached). */
+export const pageMetaSchema = z.object({
+  page: z.number().int().positive(),
+  pageSize: z.number().int().positive(),
+  total: z.number().int().nonnegative(),
+});
+
 export const reservationListSchema = z.object({
   data: z.array(reservationSchema),
+  meta: pageMetaSchema,
 });
 
 export const acceptedEventsSchema = z.object({
