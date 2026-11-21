@@ -1,7 +1,14 @@
 # Database
 
 PostgreSQL 16 is the system of record. The schema lives in
-[`backend/migrations/0001_initial_schema.sql`](../../backend/migrations/0001_initial_schema.sql).
+[`backend/migrations/`](../../backend/migrations/):
+
+| Migration | Content |
+|---|---|
+| `0001_initial_schema.sql` | Tables, constraints, partial unique indexes, guard triggers |
+| `0002_performance.sql` | `AUTHORIZE` outbox command; denormalised `jameyas.total_seats/min_fee/max_fee` (statement trigger on seat insert, row trigger on fee change only); covering index for active holds |
+| `0003_token_version.sql` | `users.token_version` (v1.1 "log out everywhere"; every JWT carries `ver`) |
+| `0004_seat_holder_index.sql` | `seats_held_by_holder_idx (holder_user_id) WHERE status='HELD'`: index-only count of a viewer's active holds (`viewer.blockingReason = HOLD_LIMIT`) |
 Migrations are forward-only, run in one transaction per file, and are serialised across instances
 by an advisory lock (`backend/src/shared/database/migrator.ts`). They run automatically on
 container start, followed by the idempotent seed.
@@ -25,7 +32,7 @@ erDiagram
   jameyas ||..o{ reservations : "jameya_id"
   payments ||..o{ payment_events : "payment_intent_id"
 
-  users { uuid id PK; text email UK; text risk_tier; bigint typical_monthly_amount; int[] preferred_durations }
+  users { uuid id PK; text email UK; text risk_tier; bigint typical_monthly_amount; int[] preferred_durations; int token_version }
   user_behavior { uuid user_id PK; int expired_holds_count; int confirmed_count; bigint confirmed_monthly_total }
   jameyas { uuid id PK; text code UK; text name; bigint monthly_amount; int duration_months; date start_date }
   seats { uuid jameya_id PK; int seat_number PK; bigint fee; text status; uuid reservation_id; uuid holder_user_id }
@@ -68,7 +75,9 @@ Money is always `bigint` minor units (halalas). The currency is constrained to `
 |---|---|
 | `reservations_held_expiry_idx (expires_at) WHERE status='HELD'` | Sweeper scans only expirable rows. |
 | `reservations_user_created_idx (user_id, created_at DESC)` | `GET /reservations`, active-hold counts. |
-| `seats_available_idx (jameya_id) WHERE status='AVAILABLE'` | Gate rebuild and availability counts. |
+| `seats_available_idx (jameya_id) WHERE status='AVAILABLE'` | Gate rebuild and availability counts (index-only scan for the marketplace snapshot). |
+| `seats_held_by_holder_idx (holder_user_id) WHERE status='HELD'` | Viewer's active holds on the detail page (`HOLD_LIMIT`). |
+| `reservations_active_by_user_idx (user_id) INCLUDE (jameya_id, id)` | Active-hold summary on the booking path and `/me` (index-only). |
 | `payments_authorizing_idx (created_at) WHERE status='AUTHORIZING'` | Reconciliation scan. |
 | `payment_outbox_due_idx (next_attempt_at) WHERE status='PENDING'` | Outbox relay polling. |
 | `payment_events_orphan_idx (received_at) WHERE outcome='ORPHAN'` | Orphan retry. |

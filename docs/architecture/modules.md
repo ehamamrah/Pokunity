@@ -38,16 +38,18 @@ make the import rules mechanical.
 ### `shared` (kernel, not a business module)
 Config validation (`zod`), `Database` (pool + `transaction()`), `RedisService`, `Clock`, error
 model and contract exception filter, JSON logger + request context, Redis rate limiter + guard,
-`JobRunner` (overlap and cluster-exclusive execution), timeout helper.
+`JobRunner` (overlap and cluster-exclusive execution), timeout helper, `BreakerRegistry` +
+`CircuitBreaker`, `TwoTierCache`, conditional GET (`Conditional`, `ConditionalGetInterceptor`: stable
+ETags, `X-As-Of`, 304; see [caching](../performance/caching.md)), `@SessionPolicy` metadata.
 
 ### `auth`
 | | |
 |---|---|
-| Responsibility | Login (bcrypt), JWT issue/verify, global `JwtAuthGuard` (`@Public()` opt-out). |
+| Responsibility | Login (bcrypt), JWT issue/verify (`jti`, `ver`), global `JwtAuthGuard` (`@Public()` opt-out, `@SessionPolicy('strict' \| 'allow-revoked')`), logout: Redis jti denylist + token versions ([ADR-0012](adr/0012-token-revocation.md)). |
 | Public API | `TokenService` (used by tests and the load-test token minting). |
-| Tables | none |
-| Depends on | `users` (`UsersFacade.findCredentials`) |
-| Endpoints | `POST /auth/login` (rate limited 5/min/IP) |
+| Tables | none (denylist keys `auth:revoked:<jti>` in Redis; `users.token_version` behind `UsersFacade`) |
+| Depends on | `users` (`findCredentials`, `tokenVersionOf`, `revokeAllSessions`), `audit` |
+| Endpoints | `POST /auth/login` (5/min/IP + 10/15 min/email), `POST /auth/logout` (10/min/member) |
 
 ### `users`
 | | |
@@ -64,7 +66,7 @@ model and contract exception filter, JSON logger + request context, Redis rate l
 | Public API | `CatalogFacade`: `findForBooking`, `admit` (gate), `claimSeat(tx)`, `releaseSeats(tx)`, `markSeatTaken(tx)`, `onSeatsChanged`. |
 | Tables | `jameyas`, `seats`, `featured_campaigns` |
 | Depends on | `users` (eligibility, preferences), `analytics` (experiment assignment) |
-| Endpoints | `GET /jameyas`, `GET /jameyas/featured`, `GET /jameyas/{id}` |
+| Endpoints | `GET /jameyas`, `GET /jameyas/featured`, `GET /jameyas/{id}`, `GET /jameyas/{id}/similar` (all conditional: stable ETag + `X-As-Of`) |
 
 ### `reservations`
 | | |
@@ -73,7 +75,7 @@ model and contract exception filter, JSON logger + request context, Redis rate l
 | Public API | `ReservationsFacade.activeHoldsCount`; `ReservationSettlementService` is registered into payments at module init. |
 | Tables | `reservations` |
 | Depends on | `catalog`, `users`, `payments`, `analytics`, `audit`, `idempotency` |
-| Endpoints | `POST/GET /reservations`, `GET/DELETE /reservations/{id}`, `POST /reservations/{id}/checkout` |
+| Endpoints | `POST/GET /reservations` (GET paginated: `page`, `pageSize` ≤ 50, `meta.total`), `GET/DELETE /reservations/{id}`, `POST /reservations/{id}/checkout`. Reserve and checkout are `@SessionPolicy('strict')`; GETs are conditional (ETag + `X-As-Of`). |
 
 ### `payments`
 | | |

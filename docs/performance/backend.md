@@ -41,12 +41,31 @@ Baseline = commit `67b4d08` (harness only), fresh stack. After = `0319ce0`.
 - Numbers are from one machine with all services on shared CPUs; use them to compare, not
   as capacity planning.
 
+**Contract v1.1 (stable ETags, logout, similar, pagination), commit `99059c3`**
+
+Every authenticated request now also checks token revocation (one Redis `EXISTS` + a cached token
+version). New and conditional scenarios:
+
+| Scenario | req/s | p50 ms | p95 ms | p99 ms |
+|---|---:|---:|---:|---:|
+| `GET /jameyas` recommended, page 1 → 200 | 1,477 | 30 | 52 | 72 |
+| `GET /jameyas` page 1 revalidate → **304** | 1,890 | 25 | 37 | 48 |
+| `GET /jameyas/:id` → 200 | 1,610 | 29 | 41 | 54 |
+| `GET /jameyas/:id` revalidate → **304** | 1,869 | 28 | 37 | 50 |
+| `GET /me` revalidate → **304** | 1,991 | 26 | 37 | 53 |
+| `GET /jameyas/:id/similar` (memoised) | 1,022 → **1,659** | 37 → 27 | 118 → 48 | 135 → 67 |
+| `GET /reservations` (paginated, 1 query + payments) | 1,980 | 26 | 38 | 47 |
+
+Details, bytes saved and the 304 rate: [caching.md](caching.md).
+
 **Contention (1,000 concurrent members, one 20-seat Jameya), after the pass**
 
 | Mode | Outcome | Wall time | p99 | Double bookings |
 |---|---|---|---|---|
 | spread over 20 seats | 20 × `201`, 786 × `JAMEYA_FULL`, 194 × `SEAT_UNAVAILABLE` | 1.8 s | 1.77 s | **0** |
 | everyone on seat 1 | 1 × `201`, 999 × `SEAT_UNAVAILABLE` | 1.3 s | 1.20 s | **0** |
+| v1.1, spread over 20 seats | 20 × `201`, 878 × `JAMEYA_FULL`, 102 × `SEAT_UNAVAILABLE` | 2.2 s | 2.07 s | **0** |
+| v1.1, everyone on seat 1 | 1 × `201`, 999 × `SEAT_UNAVAILABLE` | 1.2 s | 1.15 s | **0** |
 
 ## 3. N+1 findings and fixes
 
@@ -100,7 +119,10 @@ flowchart LR
 | KYC status | — | fresh ~10 min, stale-if-error 24 h | TTL | Strict path (fail closed) |
 | Availability gate counter | — | 120 s, rebuilt every 10 s from DB | `INCRBY` after commit | Advisory only (fast fail) |
 
-Also: weak **ETag + `304 Not Modified`** on marketplace GETs, **gzip/brotli** for bodies > 1 kB.
+Also: **stable** weak ETags + `304 Not Modified` + `X-As-Of` on all cacheable reads (marketplace
+ETags are derived from a per-snapshot content hash, so a match costs no ranking or rendering; see
+[caching.md](caching.md) and ADR-0011), **gzip/brotli** for bodies > 1 kB.
+`/jameyas/{id}/similar` is served from the snapshot and memoised like ranked lists.
 
 ## 6. Rate limiting
 
@@ -113,6 +135,7 @@ Atomic Redis sliding-window counter (Lua, Redis clock) → headers `RateLimit-Li
 | Global ceiling | `RATE_LIMIT_IP_PER_10S` per 10 s | client IP (`X-Forwarded-For` trusted from private proxy ranges only) |
 | Login | 5 / 60 s | IP |
 | Login | 10 / 15 min | email (credential stuffing across IPs) |
+| Logout | 10 / 60 s | member |
 | Create reservation | 5 / 10 s | member |
 | Checkout | 10 / 60 s | member |
 | Cancel | 10 / 10 s | member |

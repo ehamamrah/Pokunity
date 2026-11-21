@@ -12,5 +12,7 @@
 | [0008](0008-in-memory-marketplace-snapshot.md) | In-memory marketplace snapshot (≤ 5 s) for ranking | Accepted, extended by 0009 |
 | [0009](0009-two-tier-cache.md) | Two-tier cache (in-process + Redis) with single-flight | Accepted |
 | [0010](0010-async-event-ingestion.md) | Write-behind buffer for analytics events | Accepted |
+| [0011](0011-stable-etags.md) | Stable ETags from content (+ `X-As-Of`), not from responses | Accepted |
+| [0012](0012-token-revocation.md) | Logout: jti denylist (Redis) + token versions (PostgreSQL) | Accepted |
 
 Format: Context / Decision / Consequences / Alternatives considered.

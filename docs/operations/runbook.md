@@ -96,8 +96,31 @@ Booking keeps working (gate and rate limiter fail open; PostgreSQL decides). Exp
 under contention, and login/reservation rate limits are not enforced. Restore Redis; counters
 rebuild within 10 s and the KYC cache warms on demand.
 
+### F0. Caching questions ("my change does not show")
+Marketplace lists are ≤ 5 s stale by design; `X-As-Of` shows when the server last verified them.
+ETags change only when visible content changes ([caching.md](../performance/caching.md)). To force a
+snapshot rebuild: `redis-cli DEL mkt:snapshot:v3` (instances also drop their 1 s L1 copy on expiry).
+
 ### F. Seats appear unavailable but are free (`JAMEYA_FULL` while the list shows seats)
 The gate counter drifted. It self-corrects within 10 s. To force it: `redis-cli DEL gate:avail:<jameyaId>`.
+
+### G. Compromised member account: revoke all sessions
+Revocation must work even if the member cannot log in (stolen credentials).
+1. Revoke every token of the member (effective immediately on this instance, ≤ 5 s on others):
+   ```sql
+   UPDATE users SET token_version = token_version + 1 WHERE email = 'member@example.com' RETURNING id, token_version;
+   ```
+   (Equivalent to the member calling `POST /auth/logout {"allSessions": true}`.)
+2. Force a password reset through the identity process (out of scope of this API) so that the attacker
+   cannot simply log in again.
+3. Review what the tokens did: `SELECT * FROM audit_log WHERE actor = '<user id>' ORDER BY id DESC LIMIT 100;`
+   and the access logs by `requestId`. Check reservations and payments created in the window.
+4. Record the action in the incident log. Logouts are audited as `auth.logout.session` /
+   `auth.logout.all_sessions`; a manual SQL revocation is not, so note it explicitly.
+
+To revoke a single known token instead: `redis-cli SET auth:revoked:<jti> 1 EX <seconds until exp>`.
+If Redis is down, revoked-token checks cannot run: reads continue, reserve/checkout answer
+`503 SERVICE_UNAVAILABLE` until Redis returns (fail closed), and logouts escalate to all sessions.
 
 ## Reconciliation queries
 ```sql
