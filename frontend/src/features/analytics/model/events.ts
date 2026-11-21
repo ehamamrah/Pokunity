@@ -1,5 +1,5 @@
 export type AnalyticsEventType = 'impression' | 'click' | 'seat_selected' | 'checkout_started';
-export type AnalyticsSurface = 'marketplace_list' | 'featured_carousel' | 'jameya_detail';
+export type AnalyticsSurface = 'marketplace_list' | 'featured_carousel' | 'jameya_detail' | 'checkout';
 
 export interface ExperimentAssignment {
   key: string;

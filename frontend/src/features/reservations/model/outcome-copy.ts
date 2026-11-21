@@ -7,13 +7,14 @@ export interface OutcomeCopy {
 
 /** Every failure copy states the money outcome explicitly, because that is what users worry about. */
 export const FAILURE_COPY: Record<FailureReason, OutcomeCopy> = {
+  // v1.1 payment status rules: a decline never authorized anything; a late authorization is voided.
   PAYMENT_DECLINED: {
     title: 'Payment was declined',
-    body: 'Your card was not charged. The payment authorization was voided, so no money moved.',
+    body: 'Your card was not charged. The payment was declined before anything was reserved on your account.',
   },
   PAYMENT_TIMEOUT: {
-    title: 'We could not confirm your payment',
-    body: 'The payment provider did not respond in time. Your card was not charged, and any pending authorization was voided.',
+    title: 'We could not confirm your payment in time',
+    body: 'The provider did not confirm before the deadline. Your card was not charged. If an authorization arrived late, it was voided.',
   },
   HOLD_EXPIRED: {
     title: 'Your hold expired',

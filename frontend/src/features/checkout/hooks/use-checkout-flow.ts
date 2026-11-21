@@ -65,7 +65,7 @@ type PayMutation = ReturnType<typeof usePaymentActions>;
 
 function payActionFor(reservation: Reservation, token: Token, dispatch: Dispatch<CheckoutEvent>, pay: PayMutation): () => void {
   return () => {
-    analytics.track({ type: 'checkout_started', jameyaId: reservation.jameyaId, surface: 'jameya_detail', position: null });
+    analytics.track({ type: 'checkout_started', jameyaId: reservation.jameyaId, surface: 'checkout', position: null });
     dispatch({ type: 'PAY_REQUESTED' });
     const variables: CheckoutVariables = { token, idempotencyKey: idempotencyKeys.keyFor(checkoutScope(reservation.id, token)) };
     pay.mutate(variables);

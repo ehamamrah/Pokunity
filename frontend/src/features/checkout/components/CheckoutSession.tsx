@@ -24,7 +24,7 @@ function StatusNotices({ reservation, flow }: { reservation: Reservation; flow: 
   return (
     <>
       <OutcomeBanner state={flow.state} jameyaHref={ROUTES.jameya(reservation.jameyaId)} />
-      {phase === 'paying' ? <PayingNotice /> : null}
+      {phase === 'paying' ? <PayingNotice resolveBy={reservation.payment?.resolveBy} /> : null}
       {phase === 'held' ? <HoldTimer expiresAt={reservation.expiresAt} onEnded={flow.markHoldEnded} /> : null}
     </>
   );
