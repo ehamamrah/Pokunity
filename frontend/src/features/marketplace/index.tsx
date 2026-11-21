@@ -12,3 +12,6 @@ export { fetchJameyaPage, featuredOptions, jameyaDetailOptions, jameyaListOption
 export { parseFilters, type QueryReader } from './model/filters';
 export { toSearchParams, DEFAULT_FILTERS, type MarketplaceFilters } from './model/filters';
 export { describeBadge, seatsLeftLabel } from './model/badges';
+export { SimilarJameyas } from './components/SimilarJameyas';
+export { LazySimilarJameyas } from './components/LazySimilarJameyas';
+export { similarOptions } from './api/jameya-catalog';

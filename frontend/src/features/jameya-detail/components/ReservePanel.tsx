@@ -8,6 +8,7 @@ import { formatPayoutMonth } from '@/shared/lib/time';
 import { Alert, Button } from '@/shared/ui';
 import { blockingCopy } from '../model/seat-presentation';
 import { useMe } from '@/features/auth';
+import { SimilarJameyas } from '@/features/marketplace';
 
 function SeatSummary({ seat }: { seat: Seat | null }) {
   if (!seat) return <p className="text-sm text-slate-600">Pick an available seat on the map.</p>;
@@ -48,6 +49,17 @@ interface ReservePanelProps {
   onRefresh: () => void;
 }
 
+/** The failure notice, and for a full Jameya the similar ones inline (v1.1). */
+function ErrorBlock({ detail, error, onRefresh, onRetry }: { detail: JameyaDetail; error: ErrorPresentation | null; onRefresh: () => void; onRetry: () => void }) {
+  if (!error) return null;
+  return (
+    <>
+      <ErrorNotice error={error} onRefresh={onRefresh} onRetry={onRetry} />
+      {error.showSimilar ? <SimilarJameyas jameyaId={detail.id} /> : null}
+    </>
+  );
+}
+
 /** Summary of what the user is about to hold, and what it will (not) cost now. */
 export function ReservePanel({ detail, seat, reserving, error, onReserve, onRefresh }: ReservePanelProps) {
   const label = reserving ? 'Holding seat…' : seat ? `Hold seat ${seat.seatNumber}` : 'Select a seat to hold';
@@ -60,7 +72,7 @@ export function ReservePanel({ detail, seat, reserving, error, onReserve, onRefr
       <p className="text-xs text-slate-600">
         Holding a seat is free and lasts a few minutes. You are charged only when your seat is confirmed on the next step.
       </p>
-      {error ? <ErrorNotice error={error} onRefresh={onRefresh} onRetry={onReserve} /> : null}
+      <ErrorBlock detail={detail} error={error} onRefresh={onRefresh} onRetry={onReserve} />
     </aside>
   );
 }

@@ -82,17 +82,52 @@ function profileHandler() {
   );
 }
 
-function catalogHandlers() {
+/** v1.1 freshness: X-As-Of on every read, and an ETag over the content without timestamps. */
+function freshJson(body: Record<string, unknown>, request: Request, cacheControl: string): Response {
+  const asOf = new Date().toISOString();
+  const etag = `W/"${hashOf(stripVolatile(body))}"`;
+  const headers = { ETag: etag, 'Cache-Control': cacheControl, 'X-As-Of': asOf };
+  if (request.headers.get('if-none-match') === etag) return new HttpResponse(null, { status: 304, headers });
+  return json(body, 200, headers);
+}
+
+function stripVolatile(body: Record<string, unknown>): string {
+  return JSON.stringify(body, (key, value: unknown) => (key === 'asOf' ? undefined : value));
+}
+
+function hashOf(text: string): string {
+  let hash = 0;
+  for (let index = 0; index < text.length; index += 1) hash = (hash * 31 + text.charCodeAt(index)) | 0;
+  return (hash >>> 0).toString(16);
+}
+
+function similarFor(id: string, nowMs: number): Record<string, unknown> | null {
+  const def = findJameyaDef(id);
+  if (!def) return null;
+  const data = JAMEYA_DEFS.filter((other) => other.id !== id).slice(0, 5).map((other) => summaryFor(other, nowMs));
+  return { data, meta: { asOf: new Date(nowMs).toISOString(), experiment: { key: 'ranking_v2', variant: 'treatment' } } };
+}
+
+function listHandlers() {
   return [
-    http.get(`${BASE}/jameyas`, ({ request }) => json(applyListQuery(new URL(request.url).searchParams, Date.now()), 200, { 'Cache-Control': 'private, max-age=5' })),
-    http.get(`${BASE}/jameyas/featured`, () => {
+    http.get(`${BASE}/jameyas`, ({ request }) => freshJson(applyListQuery(new URL(request.url).searchParams, Date.now()), request, 'private, max-age=5')),
+    http.get(`${BASE}/jameyas/featured`, ({ request }) => {
       const data = JAMEYA_DEFS.filter((def) => def.featured).map((def) => summaryFor(def, Date.now()));
-      return json({ data, meta: { asOf: new Date().toISOString() } });
+      return freshJson({ data, meta: { asOf: new Date().toISOString() } }, request, 'private, max-age=5');
     }),
-    http.get(`${BASE}/jameyas/:id`, ({ params }) => {
+    http.get(`${BASE}/jameyas/:id/similar`, ({ params }) => {
+      const body = similarFor(String(params.id), Date.now());
+      return body ? json(body, 200, { 'X-As-Of': new Date().toISOString() }) : json(errorBody('NOT_FOUND', 'Jameya not found.'), 404);
+    }),
+  ];
+}
+
+function detailHandlers() {
+  return [
+    http.get(`${BASE}/jameyas/:id`, ({ params, request }) => {
       const def = findJameyaDef(String(params.id));
       if (!def) return json(errorBody('NOT_FOUND', 'Jameya not found.'), 404);
-      return json(detailFor(def, Date.now()));
+      return freshJson(detailFor(def, Date.now()), request, 'private, no-cache');
     }),
   ];
 }
@@ -209,7 +244,13 @@ function checkoutHandler() {
 
 function reservationHandlers() {
   return [
-    http.get(`${BASE}/reservations`, () => json({ data: [...db.reservations.values()].map((r) => reservationView(r, Date.now())).reverse() })),
+    http.get(`${BASE}/reservations`, ({ request }) => {
+      const params = new URL(request.url).searchParams;
+      const page = Number(params.get('page') ?? 1);
+      const pageSize = Number(params.get('pageSize') ?? 20);
+      const all = [...db.reservations.values()].map((r) => reservationView(r, Date.now())).reverse();
+      return json({ data: all.slice((page - 1) * pageSize, page * pageSize), meta: { page, pageSize, total: all.length } });
+    }),
     http.get(`${BASE}/reservations/:id`, ({ params }) => withReservation(String(params.id), (r) => json(reservationView(r, Date.now())))),
     http.delete(`${BASE}/reservations/:id`, ({ params }) => withReservation(String(params.id), releaseHold)),
     checkoutHandler(),
@@ -228,7 +269,8 @@ function eventsHandler() {
 export const handlers = [
   ...loginHandlers(),
   profileHandler(),
-  ...catalogHandlers(),
+  ...listHandlers(),
+  ...detailHandlers(),
   createReservationHandler(),
   ...reservationHandlers(),
   eventsHandler(),

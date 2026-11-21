@@ -1,6 +1,6 @@
 'use client';
 
-import { JameyaBadges, JameyaFacts, SeatsLeft } from '@/features/marketplace';
+import { JameyaBadges, JameyaFacts, LazySimilarJameyas, SeatsLeft } from '@/features/marketplace';
 import type { JameyaDetail, Seat } from '@/shared/contract';
 import type { DetailFlow } from '../hooks/use-jameya-detail-flow';
 import { ReservePanel } from './ReservePanel';
@@ -32,6 +32,7 @@ export function JameyaDetailBody({ detail, flow }: { detail: JameyaDetail; flow:
         <SeatMap seats={detail.seats} selectedSeat={flow.selectedSeat} holdingSeat={flow.holdingSeat} onSelect={flow.selectSeat} />
         <ReservePanel detail={detail} seat={selectedSeatOf(detail, flow.selectedSeat)} reserving={flow.reserving} error={flow.error} onReserve={flow.reserveSelected} onRefresh={flow.refresh} />
       </div>
+      <LazySimilarJameyas jameyaId={detail.id} />
     </div>
   );
 }

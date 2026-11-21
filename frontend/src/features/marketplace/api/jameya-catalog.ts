@@ -1,7 +1,7 @@
 import { infiniteQueryOptions, keepPreviousData, queryOptions, type QueryClient } from '@tanstack/react-query';
 import { apiClient, withMetaAsOf, withTopLevelAsOf, type ApiClient } from '@/shared/api-client';
 import { TIMING } from '@/shared/config/timing';
-import { featuredListSchema, jameyaDetailSchema, jameyaListSchema } from '@/shared/contract';
+import { featuredListSchema, jameyaDetailSchema, jameyaListSchema, similarListSchema } from '@/shared/contract';
 import { queryKeys } from '@/shared/query';
 import { toListQuery, type MarketplaceFilters } from '../model/filters';
 import { nextPageParam } from '../model/paging';
@@ -64,4 +64,18 @@ export function jameyaDetailOptions(id: string, client: ApiClient = apiClient) {
 /** Warms the detail on hover or focus, so the click renders from cache. TanStack dedupes and honours staleTime. */
 export function prefetchJameya(queryClient: QueryClient, id: string): void {
   void queryClient.prefetchQuery(jameyaDetailOptions(id));
+}
+
+export async function fetchSimilar(id: string, client: ApiClient = apiClient) {
+  const { data, headers } = await client.get(`/jameyas/${id}/similar`, similarListSchema);
+  return withMetaAsOf(data, headers);
+}
+
+/** Up to five open Jameyas similar to `id`. An empty list is a valid answer, shown as an empty state. */
+export function similarOptions(id: string, client: ApiClient = apiClient) {
+  return queryOptions({
+    queryKey: queryKeys.jameyas.similar(id),
+    queryFn: () => fetchSimilar(id, client),
+    staleTime: TIMING.staleTimeMs,
+  });
 }

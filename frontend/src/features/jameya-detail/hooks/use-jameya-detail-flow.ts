@@ -1,6 +1,6 @@
 'use client';
 
-import { useReducer, useState, type Dispatch } from 'react';
+import { useEffect, useReducer, useState, type Dispatch } from 'react';
 import { useRouter } from 'next/navigation';
 import { useQueryClient } from '@tanstack/react-query';
 import { analytics } from '@/features/analytics';
@@ -93,11 +93,20 @@ function loadStateOf(query: ReturnType<typeof useJameyaDetail>) {
   return { detail: query.data, loading: query.isPending, loadError: query.error };
 }
 
+/** v1.1: the detail carries the viewer's assignment, so a deep link still attributes its events. */
+function useRememberExperiment(detail: JameyaDetail | undefined): void {
+  const experiment = detail?.experiment ?? null;
+  useEffect(() => {
+    analytics.rememberExperiment(experiment);
+  }, [experiment]);
+}
+
 /** Hook: selection, the reserve mutation, error copy and seat analytics for the detail page. */
 export function useJameyaDetailFlow(jameyaId: string): DetailFlow {
   const query = useJameyaDetail(jameyaId);
   const selection = useSeatSelection(jameyaId);
   const machine = useReserveMachine(jameyaId);
+  useRememberExperiment(query.data);
   return {
     ...loadStateOf(query),
     ...selection,

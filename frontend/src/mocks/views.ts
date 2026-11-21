@@ -61,12 +61,18 @@ function viewerFor(def: JameyaDef) {
 
 export function detailFor(def: JameyaDef, nowMs: number) {
   const seats = Array.from({ length: def.durationMonths }, (_, index) => seatView(def, index + 1));
-  return { ...summaryFor(def, nowMs), seats, viewer: viewerFor(def) };
+  return { ...summaryFor(def, nowMs), seats, viewer: viewerFor(def), experiment: { key: 'ranking_v2', variant: 'treatment' as const } };
 }
 
 function paymentView(current: StoredReservation) {
   if (!current.paymentId || !current.paymentStatus) return null;
-  return { id: current.paymentId, status: current.paymentStatus, amount: current.fee, currency: 'SAR' as const };
+  return {
+    id: current.paymentId,
+    status: current.paymentStatus,
+    amount: current.fee,
+    currency: 'SAR' as const,
+    resolveBy: current.pay ? new Date(current.pay.startedAt + 10 * 60_000).toISOString() : null,
+  };
 }
 
 function reservationTerms(current: StoredReservation) {

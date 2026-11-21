@@ -9,6 +9,7 @@ export const queryKeys = {
     list: (filters: unknown) => ['jameyas', 'list', filters] as const,
     featured: () => ['jameyas', 'featured'] as const,
     detail: (id: string) => ['jameyas', 'detail', id] as const,
+    similar: (id: string) => ['jameyas', 'similar', id] as const,
   },
   reservations: {
     lists: () => ['reservations', 'list'] as const,
