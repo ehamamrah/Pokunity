@@ -1,80 +1,74 @@
-# Pokunity API Contract (v1.1)
+# API Contract (v1.1)
 
-> **Status:** Agreed contract between Backend and Frontend. Source of truth: [`openapi.yaml`](openapi.yaml).
-> Any change requires updating both `openapi.yaml` and the relevant endpoint doc below **before** implementation.
-> **v1.1** (additive): logout, similar Jameyas, reservation pagination, stable ETags + `X-As-Of`,
-> resolved [change requests](change-requests.md).
+The agreed contract between backend and frontend. [`openapi.yaml`](openapi.yaml) is the source of truth. Change it, and the matching page below, before changing code. History: [change requests](change-requests.md).
 
-## Endpoint index
+## Endpoints
 
 | Method | Path | Auth | Purpose | Doc |
 |---|---|---|---|---|
-| POST | `/api/v1/auth/login` | – | Exchange credentials for JWT | [auth.md](auth.md) |
-| POST | `/api/v1/auth/logout` | JWT | Revoke this session (or all sessions) | [auth.md](auth.md) |
-| GET | `/api/v1/me` | JWT | Current user, KYC, risk tier, limits | [auth.md](auth.md) |
-| GET | `/api/v1/jameyas` | JWT | Ranked, filtered, paginated marketplace | [jameyas.md](jameyas.md) |
-| GET | `/api/v1/jameyas/featured` | JWT | Marketing-featured Jameyas | [jameyas.md](jameyas.md) |
-| GET | `/api/v1/jameyas/{id}` | JWT | Jameya detail + seat map for viewer | [jameyas.md](jameyas.md) |
-| GET | `/api/v1/jameyas/{id}/similar` | JWT | Up to 5 similar open Jameyas | [jameyas.md](jameyas.md) |
-| POST | `/api/v1/reservations` | JWT + Idempotency-Key | Place a temporary hold on a seat | [reservations.md](reservations.md) |
-| GET | `/api/v1/reservations` | JWT | List my reservations (paginated) | [reservations.md](reservations.md) |
-| GET | `/api/v1/reservations/{id}` | JWT | Reservation status (poll target) | [reservations.md](reservations.md) |
-| POST | `/api/v1/reservations/{id}/checkout` | JWT + Idempotency-Key | Start payment authorization | [reservations.md](reservations.md) |
-| DELETE | `/api/v1/reservations/{id}` | JWT | Release my hold | [reservations.md](reservations.md) |
-| POST | `/api/v1/payments/webhook` | HMAC signature | Payment provider callback | [payments-webhook.md](payments-webhook.md) |
-| POST | `/api/v1/events` | JWT | Marketplace analytics events (A/B) | [events-and-health.md](events-and-health.md) |
-| GET | `/api/v1/health` | – | Liveness / dependency health | [events-and-health.md](events-and-health.md) |
+| POST | `/auth/login` | – | Get a JWT | [auth](auth.md) |
+| POST | `/auth/logout` | JWT | Revoke this session or all sessions | [auth](auth.md) |
+| GET | `/me` | JWT | Profile, KYC, risk tier, limits | [auth](auth.md) |
+| GET | `/jameyas` | JWT | Ranked, filtered, paginated list | [jameyas](jameyas.md) |
+| GET | `/jameyas/featured` | JWT | Featured Jameyas | [jameyas](jameyas.md) |
+| GET | `/jameyas/{id}` | JWT | Detail and seat map | [jameyas](jameyas.md) |
+| GET | `/jameyas/{id}/similar` | JWT | Up to 5 similar open Jameyas | [jameyas](jameyas.md) |
+| POST | `/reservations` | JWT + `Idempotency-Key` | Hold a seat | [reservations](reservations.md) |
+| GET | `/reservations` | JWT | My reservations (paginated) | [reservations](reservations.md) |
+| GET | `/reservations/{id}` | JWT | Reservation status (poll this) | [reservations](reservations.md) |
+| POST | `/reservations/{id}/checkout` | JWT + `Idempotency-Key` | Start payment | [reservations](reservations.md) |
+| DELETE | `/reservations/{id}` | JWT | Release my hold | [reservations](reservations.md) |
+| POST | `/payments/webhook` | HMAC | Payment provider callback | [webhook](payments-webhook.md) |
+| POST | `/events` | JWT | Analytics events | [events & health](events-and-health.md) |
+| GET | `/health` | – | Dependency health | [events & health](events-and-health.md) |
+
+All paths are under `/api/v1`. The browser calls the Next.js server on `:3000`, which forwards to the backend on `:4000`.
 
 ## Conventions
 
 | Topic | Rule |
 |---|---|
-| Base URL | Browser calls `http://localhost:3000/api/v1/*` (Next.js rewrites to `http://backend:4000/api/v1/*`). Backend is also exposed on `http://localhost:4000`. |
-| Auth | `Authorization: Bearer <jwt>`; token TTL 1h. |
-| Money | Integer **minor units** (halalas). `100000` = 1,000.00 SAR. Always paired with `currency: "SAR"`. |
-| Time | ISO-8601 UTC strings, e.g. `2026-11-21T10:00:00.000Z`. |
-| IDs | UUID v4 strings. |
-| Tracing | Client may send `X-Request-Id`; server always returns one and includes it as `error.traceId`. |
-| Freshness | Marketplace data may be up to **5 s** stale. Responses carry `asOf` timestamps. The booking path (`POST /reservations`, `checkout`) always reads the authoritative database. |
-| Pagination | `page` (1-based) + `pageSize` (default 20, max 50). Response `meta: { page, pageSize, total, asOf }`. |
+| Auth | `Authorization: Bearer <jwt>`, valid for 1 h |
+| Money | Integer minor units (halalas): `100000` = 1,000.00 SAR, always with `currency: "SAR"` |
+| Time | ISO-8601 UTC, e.g. `2026-11-21T10:00:00.000Z` |
+| IDs | UUID v4 |
+| Pagination | `page` (from 1), `pageSize` (default 20, max 50). Returns `meta: { page, pageSize, total, asOf }` |
+| Freshness | Marketplace reads may be up to 5 s old. Booking always reads the database |
+| Tracing | Send `X-Request-Id` if you like. Every response returns one, and errors repeat it as `traceId` |
+| Rate limits | Responses carry `RateLimit-Limit`, `-Remaining`, `-Reset`. A `429` adds `Retry-After`. [Limits per endpoint](../performance/backend.md#rate-limits) |
 
-## Conditional requests (ETag) and freshness
+## Caching (ETag)
 
-Cacheable reads return a **stable ETag** and an `X-As-Of` header:
+Reads return an `ETag` and an `X-As-Of` header. Send `If-None-Match: <etag>` and, if nothing you would see has changed, get `304 Not Modified` with no body.
 
-| Endpoint | `Cache-Control` | ETag computed from |
+| Endpoint | `Cache-Control` | ETag ignores |
 |---|---|---|
-| `GET /jameyas`, `/jameyas/featured`, `/jameyas/{id}/similar` | `private, max-age=5` | Response body **without** volatile fields (`asOf`) |
-| `GET /jameyas/{id}` | `private, no-cache` | Body without `asOf` |
-| `GET /me` | `private, no-cache` | Body without `kycCheckedAt` |
-| `GET /reservations`, `GET /reservations/{id}` | `private, no-cache` | Full body (authoritative, never served from cache) |
+| `/jameyas`, `/featured`, `/similar` | `private, max-age=5` | `asOf` |
+| `/jameyas/{id}` | `private, no-cache` | `asOf` |
+| `/me` | `private, no-cache` | `kycCheckedAt` |
+| `/reservations`, `/reservations/{id}` | `private, no-cache` | nothing (always read live) |
 
-- Send `If-None-Match: <etag>`; if the content is unchanged the server answers **`304 Not Modified`** with no body.
-- The ETag changes **only when the content the user sees changes** (seat counts, statuses, prices, ranking order…), not when a timestamp is refreshed.
-- `X-As-Of` (ISO datetime) is sent on **both 200 and 304**: the moment the server last verified the data. Clients use it for "updated Xs ago" so a 304 still refreshes the freshness indicator. Body `asOf` fields remain for compatibility.
-- ETags are weak (`W/"…"`): semantically equal, not byte-equal (compression may differ).
-
-## Rate-limit headers
-
-Rate-limited endpoints return `RateLimit-Limit`, `RateLimit-Remaining`, `RateLimit-Reset` (seconds); a `429` adds `Retry-After`. Limits per endpoint: [performance/backend.md](../performance/backend.md#6-rate-limiting).
+- The ETag changes only when visible content changes, not when a timestamp refreshes.
+- `X-As-Of` comes on both 200 and 304. Use it for "updated Xs ago".
+- ETags are weak (`W/"…"`). How it works: [caching](../performance/caching.md).
 
 ## Idempotency
 
-`POST /reservations` and `POST /reservations/{id}/checkout` **require** an `Idempotency-Key` header (UUID v4), generated once per user intent (e.g. per click, reused on retries).
+`POST /reservations` and `POST /reservations/{id}/checkout` need an `Idempotency-Key` header (UUID v4). Make one per user action and reuse it on retries.
 
 | Situation | Result |
 |---|---|
-| New key | Request processed; response stored for 24h, scoped per user. |
-| Same key + same body, completed | Stored response replayed, header `Idempotent-Replayed: true`. |
-| Same key + same body, still in flight | `409 IDEMPOTENCY_IN_PROGRESS` – retry after a short delay. |
-| Same key + different body | `422 IDEMPOTENCY_KEY_REUSED`. |
-| Missing key | `400 VALIDATION_ERROR`. |
-| Completed with a business error (4xx except 429) | Stored and replayed like a success (e.g. a replayed `409 SEAT_UNAVAILABLE`). Use a **new** key for a new attempt. |
-| `429` or 5xx | Not stored; the key is released, so retrying with the same key is safe. |
+| New key | Processed; response kept 24 h per user |
+| Same key and body, finished | Same response replayed, with `Idempotent-Replayed: true` |
+| Same key and body, still running | `409 IDEMPOTENCY_IN_PROGRESS`; retry shortly |
+| Same key, different body | `422 IDEMPOTENCY_KEY_REUSED` |
+| No key | `400 VALIDATION_ERROR` |
+| Ended in a 4xx (not 429) | Stored and replayed; use a **new** key to try again |
+| Ended in 429 or 5xx | Not stored; retry with the **same** key |
 
-## Error envelope
+## Errors
 
-Every non-2xx response:
+Every error has this shape. `traceId` is never empty.
 
 ```json
 {
@@ -87,63 +81,61 @@ Every non-2xx response:
 }
 ```
 
-| HTTP | `code` | `details` keys | Meaning / client action |
+| HTTP | `code` | `details` | What the client should do |
 |---|---|---|---|
-| 400 | `VALIDATION_ERROR` | `fields: [{ field, issues[] }]` | Bad input. |
-| 401 | `UNAUTHORIZED` | – | Missing, expired or **revoked** JWT → redirect to login. |
-| 401 | `INVALID_CREDENTIALS` | – | Wrong email/password. |
-| 401 | `INVALID_SIGNATURE` | – | Webhook signature mismatch. |
-| 403 | `KYC_REQUIRED` | `kycStatus` | User KYC not verified → show KYC prompt. |
-| 403 | `RISK_RESTRICTED` | `seatNumber`, `riskTier` | Seat restricted for user's risk tier → suggest other seats. |
-| 403 | `FORBIDDEN` | – | Resource belongs to another user. |
-| 404 | `NOT_FOUND` | – | Unknown resource. Also returned for a non-UUID id or a seat number beyond the Jameya's seats. |
-| 409 | `SEAT_UNAVAILABLE` | `seatNumber` | Seat held/taken by someone else (or being claimed right now) → refresh seat map. |
-| 409 | `JAMEYA_FULL` | `jameyaId` | No seats left (fast-fail gate) → show [`/jameyas/{id}/similar`](jameyas.md). |
-| 409 | `ACTIVE_RESERVATION_EXISTS` | `reservationId` | User already has an active hold in this Jameya → link to it. |
-| 409 | `HOLD_LIMIT_REACHED` | `maxActiveHolds`, `activeHolds` | User has the maximum number of active holds. |
-| 409 | `INVALID_STATE` | `status` | Transition not allowed (e.g. checkout on CONFIRMED). |
-| 409 | `IDEMPOTENCY_IN_PROGRESS` | – | See Idempotency. |
-| 410 | `RESERVATION_EXPIRED` | `reservationId` | Hold expired before checkout → let user re-reserve. |
-| 422 | `IDEMPOTENCY_KEY_REUSED` | – | See Idempotency. |
-| 429 | `RATE_LIMITED` | `retryAfterSeconds` | Honor `Retry-After` header (seconds). |
-| 500 | `INTERNAL_ERROR` | – | Unexpected. |
-| 503 | `KYC_UNAVAILABLE` | – | KYC service down and no cached status → "try again shortly". Browsing still works. |
-| 503 | `SERVICE_UNAVAILABLE` | – | Temporarily unable to serve; honor `Retry-After`. Sent by the **BFF** when the backend is unreachable or its circuit is open, and by the **backend** on reserve/checkout when the session cannot be verified (revocation store down — fail closed without logging the member out). |
-| 504 | `UPSTREAM_TIMEOUT` | – | *BFF-generated:* backend did not answer within 10 s. Safe to retry reads; retry writes with the **same** Idempotency-Key. |
+| 400 | `VALIDATION_ERROR` | `fields[]` | Fix the input |
+| 401 | `UNAUTHORIZED` | – | Token missing, expired or revoked: go to login |
+| 401 | `INVALID_CREDENTIALS` | – | Wrong email or password |
+| 401 | `INVALID_SIGNATURE` | – | Webhook signature mismatch |
+| 403 | `KYC_REQUIRED` | `kycStatus` | Show the KYC prompt |
+| 403 | `RISK_RESTRICTED` | `seatNumber`, `riskTier` | Suggest another seat |
+| 403 | `FORBIDDEN` | – | Not your resource |
+| 404 | `NOT_FOUND` | – | Unknown id, non-UUID id, or seat number out of range |
+| 409 | `SEAT_UNAVAILABLE` | `seatNumber` | Seat taken or being claimed: refresh the seat map |
+| 409 | `JAMEYA_FULL` | `jameyaId` | Show `/jameyas/{id}/similar` |
+| 409 | `ACTIVE_RESERVATION_EXISTS` | `reservationId` | Link to the existing hold |
+| 409 | `HOLD_LIMIT_REACHED` | `maxActiveHolds`, `activeHolds` | Explain the limit |
+| 409 | `INVALID_STATE` | `status` | Action not allowed in this status |
+| 409 | `IDEMPOTENCY_IN_PROGRESS` | – | Retry shortly |
+| 410 | `RESERVATION_EXPIRED` | `reservationId` | Offer to reserve again |
+| 422 | `IDEMPOTENCY_KEY_REUSED` | – | Use a new key |
+| 429 | `RATE_LIMITED` | `retryAfterSeconds` | Wait for `Retry-After` |
+| 500 | `INTERNAL_ERROR` | – | Unexpected |
+| 503 | `KYC_UNAVAILABLE` | – | KYC down, nothing cached: "try again shortly" |
+| 503 | `SERVICE_UNAVAILABLE` | – | Backend unreachable (from the BFF), or session can't be verified on reserve/checkout. Wait for `Retry-After` |
+| 504 | `UPSTREAM_TIMEOUT` | – | BFF waited 10 s. Retry; writes with the same key |
 
-Every error, including validation errors raised before a handler runs, carries a non-empty `traceId` (equal to the `X-Request-Id` response header).
-
-## Shared enums
+## Enums
 
 | Enum | Values |
 |---|---|
-| `KycStatus` | `VERIFIED`, `PENDING`, `REJECTED`, `UNKNOWN` (service unavailable, no cache) |
+| `KycStatus` | `VERIFIED`, `PENDING`, `REJECTED`, `UNKNOWN` |
 | `RiskTier` | `LOW`, `MEDIUM`, `HIGH` |
 | `SeatStatus` | `AVAILABLE`, `HELD`, `TAKEN` |
-| `ReservationStatus` | `HELD`, `PAYMENT_PENDING`, `CONFIRMED`, `EXPIRED`, `CANCELLED`, `FAILED` |
+| `ReservationStatus` | `HELD`, `PAYMENT_PENDING`, then one of `CONFIRMED`, `EXPIRED`, `CANCELLED`, `FAILED` (final) |
 | `PaymentStatus` | `AUTHORIZING`, `AUTHORIZED`, `CAPTURED`, `VOIDED`, `FAILED` |
 | `JameyaBadge` | `FEATURED`, `ALMOST_FULL`, `STARTING_SOON`, `NEW`, `BEST_MATCH` |
 | `RestrictionReason` | `KYC_REQUIRED`, `RISK_TIER`, `KYC_UNAVAILABLE` |
-| `BlockingReason` (`viewer.blockingReason`) | any `RestrictionReason`, plus `HOLD_LIMIT` (v1.1) |
+| `BlockingReason` | any `RestrictionReason`, or `HOLD_LIMIT` |
 
-Terminal reservation statuses: `CONFIRMED`, `EXPIRED`, `CANCELLED`, `FAILED`.
+## Demo users
 
-## Seeded demo users (password for all: `Pokunity123!`)
+Password for all: `Pokunity123!`
 
-| Email | KYC | Risk | Demonstrates |
+| Email | KYC | Risk | Shows |
 |---|---|---|---|
-| `sara@pokunity.app` | VERIFIED | LOW | Happy path, all seats visible |
-| `omar@pokunity.app` | PENDING | LOW | Browse only; reserve → `KYC_REQUIRED` |
+| `sara@pokunity.app` | VERIFIED | LOW | Happy path |
+| `omar@pokunity.app` | PENDING | LOW | Reserve fails with `KYC_REQUIRED` |
 | `lina@pokunity.app` | VERIFIED | HIGH | Early seats restricted (`RISK_TIER`) |
-| `khaled@pokunity.app` | VERIFIED | MEDIUM | Past behavior: many expired holds → hold limit 1 |
-| `noura@pokunity.app` | VERIFIED | LOW | KYC lookup always times out → served from cache / `KYC_UNAVAILABLE` |
+| `khaled@pokunity.app` | VERIFIED | MEDIUM | Many expired holds: hold limit 1 |
+| `noura@pokunity.app` | VERIFIED | LOW | KYC always times out: cache or `KYC_UNAVAILABLE` |
 
-## Payment test tokens (simulated provider)
+## Payment test tokens
 
-| `paymentMethodToken` | Behavior |
+| `paymentMethodToken` | What happens |
 |---|---|
-| `tok_success` | Authorized after ~1s → seat CONFIRMED, payment CAPTURED |
-| `tok_decline` | `payment.failed` (`INSUFFICIENT_FUNDS`) → reservation FAILED, seat released |
-| `tok_slow` | Authorized after ~8s (UI must keep polling) |
-| `tok_duplicate` | Same `payment.authorized` callback delivered 3× (must confirm once, capture once) |
-| `tok_timeout` | No callback ever → reconciliation job resolves (queries provider, voids if needed) |
+| `tok_success` | Authorized after ~1 s: seat `CONFIRMED`, payment `CAPTURED` |
+| `tok_decline` | Declined: reservation `FAILED`, seat released |
+| `tok_slow` | Authorized after ~8 s (keep polling) |
+| `tok_duplicate` | Webhook sent 3 times: confirmed once, captured once |
+| `tok_timeout` | No webhook: the reconciliation job settles it |

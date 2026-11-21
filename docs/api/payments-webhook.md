@@ -1,8 +1,6 @@
 # Payment Provider Webhook
 
-Server-to-server only. **Not called by the frontend.** In local/dev the in-process
-**Payment Provider Simulator** (backend module) calls this endpoint, including deliberate
-delays, duplicates and missing callbacks (see test tokens in [README](README.md)).
+Called by the payment provider, never by the frontend. Locally, a built-in simulator calls it, including delays, duplicates and missing callbacks ([test tokens](README.md#payment-test-tokens)).
 
 ## POST `/api/v1/payments/webhook`
 
@@ -17,10 +15,10 @@ delays, duplicates and missing callbacks (see test tokens in [README](README.md)
 
 | `type` | Effect |
 |---|---|
-| `payment.authorized` | Confirm seat (atomic, conditional on `PAYMENT_PENDING`) → enqueue capture via outbox. If seat cannot be confirmed → enqueue **void**. |
-| `payment.failed` | Reservation → `FAILED` (`PAYMENT_DECLINED`), seat → `AVAILABLE`. |
-| `payment.captured` | Payment → `CAPTURED` (ledger entry). |
-| `payment.voided` | Payment → `VOIDED` (ledger entry). |
+| `payment.authorized` | Confirm the seat, then capture. If the seat can't be confirmed, void instead |
+| `payment.failed` | Reservation `FAILED`, seat released |
+| `payment.captured` | Payment `CAPTURED`, ledger entry |
+| `payment.voided` | Payment `VOIDED`, ledger entry |
 
 ### Request
 
@@ -46,7 +44,7 @@ Content-Type: application/json
 { "received": true, "duplicate": false }
 ```
 
-**200 OK** (same `eventId` delivered again – no side effects)
+**200 OK** (same `eventId` again: nothing happens)
 
 ```json
 { "received": true, "duplicate": true }
@@ -54,17 +52,16 @@ Content-Type: application/json
 
 ### Errors
 
-- `401 INVALID_SIGNATURE` – signature missing/invalid (provider will retry; we never process unsigned events).
-- `400 VALIDATION_ERROR` – malformed payload.
-- `404 NOT_FOUND` is **not** returned for unknown `paymentIntentId`; it is stored as an
-  orphan event (`200`, flagged for reconciliation) so the provider stops retrying.
+- `401 INVALID_SIGNATURE`: missing or wrong signature; nothing is processed.
+- `400 VALIDATION_ERROR`: malformed payload.
+- An unknown `paymentIntentId` still gets `200`. The event is kept as an orphan for reconciliation, so the provider stops retrying.
 
-### Edge-case handling summary
+### Edge cases
 
 | Scenario | Handling |
 |---|---|
-| Duplicate callback | `eventId` unique constraint → second insert no-ops → `duplicate: true` |
-| Out-of-order (`captured` before `authorized` processed) | State transitions are conditional; events that don't apply are recorded and ignored |
-| Authorized after reservation already `FAILED` (timeout) | Seat not confirmable → **void** authorization (no charge) |
-| Callback never arrives | Reconciliation job queries provider after 2 min in `PAYMENT_PENDING`; resolves or voids after 10 min |
-| Capture call fails | Outbox retries with exponential backoff; seat stays `CONFIRMED` (funds already authorized) |
+| Duplicate callback | Unique `eventId`: the second one does nothing |
+| Out of order | Events that don't fit the current state are recorded and ignored |
+| Authorized after the reservation failed | Void: no charge |
+| Callback never arrives | Reconciliation asks the provider after 2 min; settles or voids by 10 min |
+| Capture call fails | Outbox retries with backoff; the seat stays `CONFIRMED` |

@@ -2,8 +2,7 @@
 
 ## POST `/api/v1/events`
 
-Fire-and-forget marketplace analytics used to evaluate ranking A/B experiments
-(impressions, clicks, funnel steps). Batched by the client (flush every 5 s or 20 events).
+Analytics for the ranking A/B test (impressions, clicks, funnel steps). The client batches them: every 5 s or 20 events.
 
 ### Request
 
@@ -37,10 +36,10 @@ Content-Type: application/json
 | Field | Values |
 |---|---|
 | `type` | `impression`, `click`, `seat_selected`, `checkout_started` |
-| `surface` | `marketplace_list`, `featured_carousel`, `jameya_detail`, `checkout` (v1.1, reservation/checkout page) |
+| `surface` | `marketplace_list`, `featured_carousel`, `jameya_detail`, `checkout` |
 | `position` | 1-based rank in list (null for detail) |
 
-Max 50 events per request. Server-side funnel events (`reservation_created`, `reservation_confirmed`) are recorded by the backend itself.
+Up to 50 events per request. `reservation_created` and `reservation_confirmed` are recorded by the backend itself.
 
 ### 202 Accepted
 
@@ -66,5 +65,4 @@ No auth. Used by Docker healthchecks.
 }
 ```
 
-`kyc: "degraded"` (circuit breaker open) does **not** make the service unhealthy. Returns
-`503` with `status: "error"` only if database or redis is down.
+`kyc: "degraded"` (KYC breaker open) still counts as healthy. The endpoint returns `503` only when the database or Redis is down.

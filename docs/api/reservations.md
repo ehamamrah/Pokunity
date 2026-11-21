@@ -1,4 +1,6 @@
-# Reservations (Seat Hold → Payment → Confirmation)
+# Reservations
+
+Hold a seat, pay, get confirmed. How it works inside: [seat reservation](../reservation/seat-reservation.md).
 
 ## Lifecycle
 
@@ -16,14 +18,8 @@ stateDiagram-v2
   FAILED --> [*]
 ```
 
-**Money guarantee:** the provider only **authorizes** (holds funds) during `PAYMENT_PENDING`.
-Funds are **captured only after the seat is confirmed** in the same DB transaction that marks
-it `CONFIRMED`. If confirmation is impossible the authorization is **voided** — no charge,
-therefore no refund.
-
-**Expiry guarantee:** the expiry sweeper only expires `HELD` reservations. Once a reservation is
-`PAYMENT_PENDING` its seat cannot be released by the sweeper; only the payment outcome
-(or reconciliation) can resolve it.
+- **Money:** funds are only authorized (held) during `PAYMENT_PENDING`, and captured only after the seat is confirmed. If the seat can't be confirmed, the authorization is voided: no charge, no refund.
+- **Expiry:** only `HELD` reservations expire. Once `PAYMENT_PENDING`, only the payment result (or reconciliation) can end it.
 
 ## Object: `Reservation`
 
@@ -45,24 +41,22 @@ therefore no refund.
 }
 ```
 
-- `fee` is **locked at hold time**; later price changes don't affect this reservation.
-- `expiresAt` is meaningful only while `HELD` (UI shows a countdown).
-- `payment` (when present): `{ "id": "uuid", "status": "PaymentStatus", "amount": int, "currency": "SAR", "resolveBy": "ISO datetime | null" }`.
-- `payment.resolveBy` (v1.1): latest time by which a `PAYMENT_PENDING` reservation is guaranteed to
-  reach a terminal status (reconciliation deadline, `payment.createdAt + 10 min`). `null` once terminal.
-  The UI uses it for "still confirming — at the latest by HH:MM".
-- `payment.status` after a failure (v1.1, explicit): a **decline** → `FAILED` (nothing was authorized,
-  so nothing to void); a payment that never authorized before the deadline → `FAILED`; an
-  authorization that arrives after the reservation already failed is voided → `VOIDED`.
-  In every case the member was **not charged**.
-- `failureReason` (when `FAILED`/`EXPIRED`): `PAYMENT_DECLINED`, `PAYMENT_TIMEOUT`, `HOLD_EXPIRED`, `SEAT_CONFLICT`.
-- Zero-fee seats still go through checkout, but no payment is created: checkout returns **200** with `status: "CONFIRMED"` and `payment: null`.
+| Field | Meaning |
+|---|---|
+| `fee` | Fixed when the hold is made |
+| `expiresAt` | Countdown while `HELD` |
+| `payment` | `{ id, status, amount, currency, resolveBy }` or `null` |
+| `payment.resolveBy` | Latest time a pending payment will be settled (created + 10 min); `null` once final |
+| `payment.status` on failure | Declined or never authorized → `FAILED`. Authorized too late and voided → `VOIDED`. Never charged either way |
+| `failureReason` | `PAYMENT_DECLINED`, `PAYMENT_TIMEOUT`, `HOLD_EXPIRED`, `SEAT_CONFLICT` |
+
+Zero-fee seats skip payment: checkout returns `200` with `status: "CONFIRMED"` and `payment: null`.
 
 ---
 
 ## POST `/api/v1/reservations`
 
-Places a temporary hold (default **5 minutes**) on a specific seat.
+Holds one seat for 5 minutes.
 
 ### Request
 
@@ -77,15 +71,15 @@ Content-Type: application/json
 
 **201 Created** → `Reservation` with `status: "HELD"` (see object above).
 
-**Checks, in order** (fail fast, cheapest first):
+**Checks, cheapest first:**
 
 1. Rate limit: 5 requests / 10 s / user → `429 RATE_LIMITED`
-2. Idempotency key handling (see [README](README.md#idempotency))
-3. Eligibility: KYC (cached, circuit-breaker protected) → `403 KYC_REQUIRED` / `503 KYC_UNAVAILABLE`
-4. Behavior limits → `409 HOLD_LIMIT_REACHED`, `409 ACTIVE_RESERVATION_EXISTS`
+2. Idempotency key ([rules](README.md#idempotency))
+3. KYC → `403 KYC_REQUIRED` / `503 KYC_UNAVAILABLE`
+4. Hold limits → `409 HOLD_LIMIT_REACHED`, `409 ACTIVE_RESERVATION_EXISTS`
 5. Risk restriction on seat → `403 RISK_RESTRICTED`
-6. Fast-fail availability gate (Redis counter) → `409 JAMEYA_FULL`
-7. Atomic seat claim in PostgreSQL (conditional update) → `409 SEAT_UNAVAILABLE`
+6. Redis availability gate → `409 JAMEYA_FULL`
+7. Atomic seat claim in PostgreSQL → `409 SEAT_UNAVAILABLE`
 
 ### 409 example
 
@@ -104,7 +98,7 @@ Content-Type: application/json
 
 ## GET `/api/v1/reservations`
 
-Lists the viewer's reservations, newest first.
+The viewer's reservations, newest first.
 
 | Param | Type | Notes |
 |---|---|---|
@@ -121,14 +115,11 @@ Lists the viewer's reservations, newest first.
 }
 ```
 
-`meta` is new in v1.1 (additive). Clients that ignore it see the first 20 reservations, newest first.
-
 ---
 
 ## GET `/api/v1/reservations/{id}`
 
-Authoritative status (never cached). **Polling target** during checkout: poll every ~1.5 s
-until status is terminal; back off to 3 s after 15 s.
+Live status, never cached. Poll it during checkout: every ~1.5 s, slowing to 3 s after 15 s, until the status is final.
 
 **200 OK** (after successful payment)
 
@@ -156,8 +147,7 @@ until status is terminal; back off to 3 s after 15 s.
 
 ## POST `/api/v1/reservations/{id}/checkout`
 
-Moves a `HELD` reservation to `PAYMENT_PENDING` and asks the provider to **authorize** the fee.
-Result arrives asynchronously via the provider webhook; client polls `GET /reservations/{id}`.
+Moves `HELD` to `PAYMENT_PENDING` and asks the provider to authorize the fee. The result arrives later by webhook; poll `GET /reservations/{id}`.
 
 ### Request
 
@@ -188,17 +178,15 @@ Content-Type: application/json
 
 ### Errors
 
-- `410 RESERVATION_EXPIRED` – hold expired before checkout (checked atomically).
-- `409 INVALID_STATE` – not `HELD` (e.g. already `PAYMENT_PENDING`). `details.status` = current status.
-  A retried checkout with the **same** Idempotency-Key replays the original 202 instead.
+- `410 RESERVATION_EXPIRED`: the hold expired first.
+- `409 INVALID_STATE`: not `HELD`. A retry with the same `Idempotency-Key` replays the original 202 instead.
 - `403 FORBIDDEN`, `404 NOT_FOUND`, `400 VALIDATION_ERROR`.
 
 ---
 
 ## DELETE `/api/v1/reservations/{id}`
 
-Releases the viewer's own `HELD` reservation (seat becomes `AVAILABLE`). Idempotent:
-deleting an already `CANCELLED` reservation returns 200 with the same body.
+Releases your own `HELD` seat. Safe to repeat: an already `CANCELLED` reservation returns 200 again.
 
 **200 OK** → `Reservation` with `status: "CANCELLED"`
 

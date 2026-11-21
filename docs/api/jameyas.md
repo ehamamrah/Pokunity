@@ -1,7 +1,6 @@
 # Jameyas (Marketplace)
 
-Marketplace reads tolerate **≤5 s staleness**. Each response carries `asOf` so the UI can
-show freshness and decide when to refetch. Responses send `Cache-Control: private, max-age=5`.
+Marketplace reads may be up to 5 s old. Each response carries `asOf`, so the UI can show "updated Xs ago". Ranking logic: [ranking and personalization](../marketplace/ranking-and-personalization.md).
 
 ## Object: `JameyaSummary`
 
@@ -43,7 +42,7 @@ Ranked, personalized, paginated marketplace.
 ### Request
 
 ```http
-GET /api/v1/jameyas?sort=recommended&maxMonthly=150000&page=1&pageSize=2
+GET /api/v1/jameyas?sort=recommended&maxMonthly=150000&page=1&pageSize=1
 Authorization: Bearer <jwt>
 ```
 
@@ -68,28 +67,11 @@ Authorization: Bearer <jwt>
       "badges": ["FEATURED", "ALMOST_FULL", "BEST_MATCH"],
       "ranking": { "score": 0.91, "reasons": ["Matches your usual monthly amount", "Only 2 seats left"] },
       "asOf": "2026-11-21T10:00:03.000Z"
-    },
-    {
-      "id": "9a7b6c5d-4e3f-4a2b-8c1d-0e9f8a7b6c5d",
-      "name": "Jeddah Circle 10M",
-      "monthlyAmount": 120000,
-      "currency": "SAR",
-      "durationMonths": 10,
-      "totalSeats": 10,
-      "seatsAvailable": 7,
-      "payoutAmount": 1200000,
-      "minFee": 0,
-      "maxFee": 30000,
-      "startDate": "2026-12-15",
-      "featured": false,
-      "badges": ["STARTING_SOON"],
-      "ranking": { "score": 0.84, "reasons": ["Starts in 24 days"] },
-      "asOf": "2026-11-21T10:00:03.000Z"
     }
   ],
   "meta": {
     "page": 1,
-    "pageSize": 2,
+    "pageSize": 1,
     "total": 1843,
     "asOf": "2026-11-21T10:00:03.000Z",
     "experiment": { "key": "ranking_v2", "variant": "treatment" }
@@ -97,8 +79,7 @@ Authorization: Bearer <jwt>
 }
 ```
 
-`meta.experiment` tells the client which A/B variant served this list; echo it in
-[`POST /events`](events-and-health.md).
+`meta.experiment` is the viewer's A/B variant. Send it back with [`POST /events`](events-and-health.md).
 
 **400** `VALIDATION_ERROR` · **401** `UNAUTHORIZED`
 
@@ -106,7 +87,7 @@ Authorization: Bearer <jwt>
 
 ## GET `/api/v1/jameyas/featured`
 
-Up to 10 Jameyas from active marketing campaigns (priority order), excluding full ones.
+Up to 10 Jameyas from active campaigns, in priority order. Full ones are left out.
 
 ### 200 OK
 
@@ -121,7 +102,7 @@ Up to 10 Jameyas from active marketing campaigns (priority order), excluding ful
 
 ## GET `/api/v1/jameyas/{id}`
 
-Jameya detail with the seat map **as seen by the viewer** (restrictions applied).
+Jameya detail with the seat map as this viewer sees it (restrictions applied).
 
 ### Request
 
@@ -165,30 +146,25 @@ Authorization: Bearer <jwt>
 }
 ```
 
-(Seat array truncated for brevity; real response contains all `totalSeats` seats ordered by `seatNumber`.)
+Seats are cut short here; the real response lists every seat in order.
 
 ### Seat rules
 
-- `HELD` seats may become `AVAILABLE` again when the hold expires. UI should show them as "on hold".
-- `heldByViewer: true` marks the viewer's own hold (UI links to that reservation).
-- `restricted: true` → seat is not reservable by this viewer; UI greys it out with the reason.
-- `viewer.blockingReason` explains `canReserve: false`: a `RestrictionReason` (e.g. `KYC_REQUIRED`) or, since v1.1,
-  `HOLD_LIMIT` when the viewer already holds the maximum number of seats (see `/me` → `limits`).
-  `canReserve: false` with `blockingReason: null` means either `activeReservationId` is set (the viewer
-  already holds a seat here) or no unrestricted seat is available.
-- `experiment` (v1.1) is the viewer's ranking A/B assignment, so deep-linked detail views can attribute events.
+| Field | Meaning |
+|---|---|
+| `status: HELD` | On hold; may become `AVAILABLE` again when the hold expires |
+| `heldByViewer` | The viewer's own hold (link to it) |
+| `restricted` + `restrictionReason` | The viewer can't reserve this seat; grey it out and show why |
+| `viewer.canReserve: false` | `blockingReason` says why (`KYC_REQUIRED`, `HOLD_LIMIT`, …). If it is `null`, either `activeReservationId` is set or no unrestricted seat is free |
+| `experiment` | The viewer's A/B variant, for events from deep links |
 
-**404** `NOT_FOUND` · **401** `UNAUTHORIZED` · **304** when `If-None-Match` matches (see [conditional requests](README.md#conditional-requests-etag-and-freshness))
+**404** `NOT_FOUND` · **401** `UNAUTHORIZED` · **304** when `If-None-Match` matches (see [caching](README.md#caching-etag))
 
 ---
 
 ## GET `/api/v1/jameyas/{id}/similar` (v1.1)
 
-Up to **5** open Jameyas similar to `{id}`, used when a Jameya is full (`409 JAMEYA_FULL`) or as
-"you may also like". Excludes `{id}` itself, full Jameyas, and Jameyas that have already started.
-
-**Similarity** (ranked by the viewer's ranking variant as a tie-breaker): same `durationMonths`
-± 2, `monthlyAmount` within ± 25 %, then closest `startDate`.
+Up to 5 open Jameyas like `{id}`, shown when it is full (`409 JAMEYA_FULL`). Similar means duration within ± 2 months and monthly amount within ± 25 %, then the closest start date. Full and already-started Jameyas are left out.
 
 ### Request
 
@@ -209,4 +185,4 @@ Authorization: Bearer <jwt>
 }
 ```
 
-An empty `data` array is valid (nothing similar right now). **404** `NOT_FOUND` · **401** `UNAUTHORIZED` · **304**
+`data` may be empty. **404** `NOT_FOUND` · **401** `UNAUTHORIZED` · **304**

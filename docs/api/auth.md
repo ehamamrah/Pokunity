@@ -2,7 +2,7 @@
 
 ## POST `/api/v1/auth/login`
 
-Exchanges email/password for a JWT. No auth required.
+Swaps email and password for a JWT (valid 1 h).
 
 ### Request
 
@@ -33,9 +33,7 @@ Content-Type: application/json
 
 ## POST `/api/v1/auth/logout` (v1.1)
 
-Revokes the caller's session. Every access token carries a unique `jti`; logout puts it on a
-**denylist** (Redis, TTL = the token's remaining lifetime), so the token is rejected with
-`401 UNAUTHORIZED` from then on — even if it was copied elsewhere.
+Revokes the current session, or every session of the member. A revoked token gets `401 UNAUTHORIZED` from then on, even if it was copied elsewhere. Design: [ADR-0012](../architecture/adr/0012-token-revocation.md).
 
 ### Request
 
@@ -47,29 +45,19 @@ Content-Type: application/json
 { "allSessions": false }
 ```
 
-| Field | Type | Default | Meaning |
-|---|---|---|---|
-| `allSessions` | bool | `false` | `true` revokes **every** token of this member (all devices) by bumping the member's token version. |
+`allSessions: true` logs out every device. The body is optional; without it only this session is revoked.
 
-The body is optional (`{}` or no body = this session only).
-
-**204 No Content** — always, also when the token was already revoked (idempotent).
+**204 No Content**, also when the token was already revoked.
 
 **401** `UNAUTHORIZED` (no/invalid token) · **429** `RATE_LIMITED`
 
-### Notes
-
-- Revocation is checked on every authenticated request. If the denylist store is unavailable, the
-  server still enforces the member's token version (`allSessions` logouts) from PostgreSQL and
-  fails **closed** for tokens it cannot verify only on money-moving endpoints (reserve, checkout).
-- The BFF calls this endpoint, then deletes its httpOnly session cookie.
+If Redis is down, browsing keeps working, but reserve and checkout return `503 SERVICE_UNAVAILABLE` rather than accept a token that might be revoked.
 
 ---
 
 ## GET `/api/v1/me`
 
-Returns the viewer's profile, eligibility, and limits. The frontend uses this to decide
-whether to show KYC prompts and how many holds remain.
+The viewer's profile, KYC status and hold limits.
 
 ### Request
 
@@ -93,8 +81,7 @@ Authorization: Bearer <jwt>
 }
 ```
 
-- `kycStatus: "UNKNOWN"` means the KYC service is unavailable and no cached result exists.
-  Browsing works; reserving returns `503 KYC_UNAVAILABLE`.
-- `kycCheckedAt` is when the KYC status was last confirmed (may be served from cache).
+- `kycStatus: "UNKNOWN"`: KYC service down and nothing cached. Browsing works; reserving returns `503 KYC_UNAVAILABLE`.
+- `kycCheckedAt`: when KYC was last confirmed (may come from cache).
 
 **401** `UNAUTHORIZED`
